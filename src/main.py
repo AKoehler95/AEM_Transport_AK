@@ -22,7 +22,7 @@ def main():
 
     sim = at_simulation.ATSimulation(config)
     sim.run()
-    
+
     result = sim.result_tuple
 
     return result

@@ -1,0 +1,31 @@
+=== CONFIGURATION PARAMETERS ===
+Number of elements: 2
+Number of terms: 9
+Domain increment: 0.5
+Alpha_t: 0.055
+Alpha_l: 1.0
+Beta: 0.5
+Gamma: 3.5
+Ca: 8.0
+Number of control points: 100
+Orientation: vertical
+Domain: x[0.0, 100.0], y[-15.0, 0]
+
+=== ELEMENTS ===
+Element 1: kind=ATElementType.Line, x=0, y=-5.1, r=4.0, theta=1.5707963267948966, c=5, id=donor
+Element 2: kind=ATElementType.Line, x=0, y=5.1, r=4.0, theta=1.5707963267948966, c=-5, id=image_donor
+
+=== COMPUTATION INFO ===
+CPU Time [hh:mm:ss]: 0:00:06
+
+L_max: 100
+
+=== ELEMENT BOUNDARY STATISTICS ===
+Min1 = 4.998380095 mg/l
+Max1 = 5.000682526 mg/l
+Mean1 = 5.000042357 mg/l
+Std1 = 0.000445386 mg/l
+Min2 = -33.502388841 mg/l
+Max2 = -33.494330331 mg/l
+Mean2 = -33.50014825 mg/l
+Std2 = 0.001558851 mg/l

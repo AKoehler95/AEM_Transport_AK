@@ -8,7 +8,6 @@ import logging
 import at_config
 import at_simulation
 
-
 def main():
     # Set up logging
     log_file_name = "aem_transport_simulation.log"
@@ -22,7 +21,6 @@ def main():
 
     sim = at_simulation.ATSimulation(config)
     sim.run()
-
     result = sim.result_tuple
 
     return result

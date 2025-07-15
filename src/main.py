@@ -17,7 +17,7 @@ def main():
     # Load configuration
     filename = "simulation_config.json"
     config = at_config.ATConfiguration.from_json(filename)
-    inc = config.dom_inc
+    # inc = config.dom_inc
 
     sim = at_simulation.ATSimulation(config)
     sim.run()

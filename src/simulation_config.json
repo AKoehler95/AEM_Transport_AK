@@ -4,19 +4,35 @@
     "ca": 8.0,
     "gamma": 3.5,
     "dom_xmin": 0.0,
-    "dom_xmax": 50.0,
-    "dom_ymin": -1.1,
-    "dom_ymax": 1.1,
-    "dom_inc": 0.5,
+    "dom_xmax": 200.0,
+    "dom_ymin": -10.1,
+    "dom_ymax": 10.1,
+    "dom_inc": 0.2,
     "num_cp": 100,
     "num_terms": 7,
     "orientation": "horizontal",
-    "plot_aspect":"scaled",
+    "plot_aspect":"",
     "elements": [
         {
             "kind": "line",
             "x": 10,
             "y": 0,
+            "c": 5,
+            "l": 2.0,
+            "id": "donor"
+        },
+        {
+            "kind": "line",
+            "x": 20,
+            "y": -5,
+            "c": 5,
+            "l": 2.0,
+            "id": "donor"
+        },
+        {
+            "kind": "line",
+            "x": 15,
+            "y": 5,
             "c": 5,
             "l": 2.0,
             "id": "donor"

@@ -1,22 +1,22 @@
 {
-    "alpha_l": 1.0,
-    "alpha_t": 0.005,
+    "alpha_l": 2.0,
+    "alpha_t": 0.2,
     "ca": 8.0,
     "gamma": 3.5,
     "dom_xmin": 0.0,
     "dom_xmax": 100.0,
-    "dom_ymin": -15.0,
-    "dom_ymax": 0.0,
-    "dom_inc": 0.5,
+    "dom_ymin": -10.0,
+    "dom_ymax": 10.0,
+    "dom_inc": 0.2,
     "num_cp": 100,
-    "num_terms": 9,
-    "orientation": "vertical",
+    "num_terms": 7,
+    "orientation": "horizontal",
     "plot_aspect": "scaled",
     "elements": [
         {
             "kind": "line",
             "x": 0,
-            "y": -5.1,
+            "y": -5,
             "c": 5,
             "l": 5,
             "id": "donor"
@@ -24,12 +24,12 @@
 		{
             "kind": "line",
             "x": 0,
-            "y": -7.65,
+            "y": 5,
             "c": 5,
             "l": 5,
             "id": "donor"
         }
-		
+
     ]
 }
 

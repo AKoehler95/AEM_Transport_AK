@@ -657,17 +657,6 @@ class ATSimulation:
         cbar_acceptor.set_ticklabels([f"{abs(t):.0f}" for t in acceptor_levels])
         cbar_acceptor.ax.tick_params(labelsize=14)
 
-        paths = Plume_max.get_paths()
-        if paths and len(paths[0].vertices) > 0:
-            verts = paths[0].vertices
-            calculated_lmax = int(np.floor(np.max(verts[:, 0])))
-            if self.L_max != calculated_lmax:
-                print(f"Warning: L_max mismatch. Previously calculated: {self.L_max}, Current: {calculated_lmax}")
-                self.L_max = calculated_lmax
-        else:
-            if self.L_max is None:
-                print("L_max: -")
-
         if self.config.plot_aspect == "scaled":
             plt.axis("scaled")
         else:  # "auto"

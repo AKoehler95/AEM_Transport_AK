@@ -1,0 +1,63 @@
+Line 1: r=4.572, C0=3.55, Ca=6.9, γ=3.14, target=274.32 → αₜ=0.080100, Lmax=284.000000
+Line 3: r=3.048, C0=0.45, Ca=0.8, γ=3.14, target=914.4 → αₜ=0.012913, Lmax=906.000000
+Line 5: r=1.524, C0=5.26, Ca=10.9, γ=3.14, target=259.08 → αₜ=0.010100, Lmax=231.000000
+Line 6: r=3.81, C0=4.03, Ca=3.8, γ=3.14, target=91.44 → αₜ=0.020100, Lmax=101.000000
+Line 11: r=3.2004, C0=1.806, Ca=5.0, γ=3.14, target=182.88 → αₜ=0.045100, Lmax=184.000000
+Line 12: r=1.524, C0=0.123, Ca=6.5, γ=3.14, target=42.672 → αₜ=0.010100, Lmax=28.000000
+Line 15: r=1.524, C0=13.8, Ca=9.0, γ=3.14, target=96.012 → αₜ=0.010100, Lmax=106.000000
+Line 18: r=3.81, C0=22.9, Ca=8.3, γ=3.14, target=914.4 → αₜ=0.080100, Lmax=911.000000
+Line 21: r=2.286, C0=0.469, Ca=11.2, γ=3.14, target=60.96 → αₜ=0.015100, Lmax=63.000000
+Line 25: r=1.524, C0=0.0719, Ca=8.4, γ=3.14, target=67.056 → αₜ=0.010100, Lmax=19.000000
+Line 27: r=2.1336, C0=1.504, Ca=2.4, γ=3.14, target=396.24 → αₜ=0.014475, Lmax=399.000000
+Line 28: r=1.0668, C0=5.375, Ca=5.5, γ=3.14, target=457.2 → αₜ=0.010100, Lmax=228.000000
+Line 30: r=1.525, C0=5.22, Ca=5.7, γ=3.14, target=152.0 → αₜ=0.030100, Lmax=154.000000
+Line 33: r=0.305, C0=5.48, Ca=7.4, γ=3.14, target=107.0 → αₜ=0.010100, Lmax=19.000000
+Line 38: r=1.22, C0=0.96, Ca=3.9, γ=3.14, target=30.0 → αₜ=0.030100, Lmax=34.000000
+Line 43: r=1.83, C0=3.13, Ca=8.0, γ=3.14, target=96.0 → αₜ=0.010100, Lmax=106.000000
+Line 44: r=6.0, C0=0.07, Ca=1.0, γ=3.17, target=140.0 → αₜ=0.080100, Lmax=136.000000
+Line 45: r=6.0, C0=0.04, Ca=1.0, γ=3.13, target=90.0 → αₜ=0.040100, Lmax=100.000000
+Line 47: r=6.0, C0=2.4, Ca=2.0, γ=3.17, target=90.0 → αₜ=0.040100, Lmax=100.000000
+Line 49: r=6.0, C0=0.7, Ca=2.0, γ=3.17, target=90.0 → αₜ=0.040100, Lmax=100.000000
+Line 53: r=1.0, C0=0.01, Ca=7.5, γ=3.14, target=120.0 → αₜ=0.010100, Lmax=3.000000
+Line 57: r=5.0, C0=0.01, Ca=4.0, γ=3.08, target=100.0 → αₜ=0.047600, Lmax=96.000000
+Line 58: r=0.675, C0=0.01, Ca=0.28, γ=3.08, target=420.0 → αₜ=0.010100, Lmax=8.000000
+Line 59: r=1.15, C0=0.017, Ca=3.2, γ=3.08, target=450.0 → αₜ=0.010100, Lmax=7.000000
+Line 60: r=1.875, C0=0.0004, Ca=1.29, γ=3.08, target=140.0 → αₜ=0.010100, Lmax=21.000000
+
+# Skipped:
+Line 2: params=['1.524', '28.00', '7.1', '3.14', '228.6']  ERROR: Failed to bracket target 228.600000 in αₜ∈[0.0001, 0.1]
+Line 4: params=['3.048', '43.28', '12.6', '3.14', '213.36']  ERROR: Failed to bracket target 213.360000 in αₜ∈[0.0001, 0.1]
+Line 7: params=['2.286', '14.10', '3.7', '3.14', '146.304']  ERROR: Failed to bracket target 146.304000 in αₜ∈[0.0001, 0.1]
+Line 8: params=['1.524', '29.64', '2.4', '3.14', '76.2']  ERROR: Failed to bracket target 76.200000 in αₜ∈[0.0001, 0.1]
+Line 9: params=['3.81', '0.68', '2.1', '3.14', '106.68']  ERROR: Failed to bracket target 106.680000 in αₜ∈[0.0001, 0.1]
+Line 10: params=['5.334', '18.27', '1.9', '3.14', '350.52']  ERROR: Failed to bracket target 350.520000 in αₜ∈[0.0001, 0.1]
+Line 13: params=['1.524', '12.84', '6.5', '3.14', '109.728']  ERROR: Failed to bracket target 109.728000 in αₜ∈[0.0001, 0.1]
+Line 14: params=['3.81', '8.18', '8.6', '3.14', '219.456']  ERROR: Failed to bracket target 219.456000 in αₜ∈[0.0001, 0.1]
+Line 16: params=['3.048', '13.118', '9.3', '3.14', '53.34']  ERROR: Failed to bracket target 53.340000 in αₜ∈[0.0001, 0.1]
+Line 17: params=['2.286', '84.9', '8.2', '3.14', '128.016']  ERROR: Failed to bracket target 128.016000 in αₜ∈[0.0001, 0.1]
+Line 19: params=['4.572', '49.3', '7.5', '3.14', '192.024']  ERROR: Failed to bracket target 192.024000 in αₜ∈[0.0001, 0.1]
+Line 20: params=['1.524', '90.21', '6.8', '3.14', '60.96']  ERROR: Failed to bracket target 60.960000 in αₜ∈[0.0001, 0.1]
+Line 22: params=['2.286', '20.95', '8.52', '3.14', '106.68']  ERROR: Failed to bracket target 106.680000 in αₜ∈[0.0001, 0.1]
+Line 23: params=['11', '4.246', '7.9', '3.14', '420']  ERROR: Cannot eval L_max for αₜ∈[0.0001, 0.1]
+Line 24: params=['3.048', '67', '3.7', '3.14', '207.264']  ERROR: Failed to bracket target 207.264000 in αₜ∈[0.0001, 0.1]
+Line 26: params=['4.2672', '25.4', '5.5', '3.14', '71.3232']  ERROR: Failed to bracket target 71.323200 in αₜ∈[0.0001, 0.1]
+Line 29: params=['1.0668', '3.57', '0.00', '3.14', '57.3024']  ERROR: Cannot eval L_max for αₜ∈[0.09449571380615235, 0.1]
+Line 31: params=['4.57', '9.23', '2.8', '3.14', '366']  ERROR: Failed to bracket target 366.000000 in αₜ∈[0.0001, 0.1]
+Line 32: params=['3.05', '2.84', '0.6', '3.14', '168']  ERROR: Failed to bracket target 168.000000 in αₜ∈[0.0001, 0.1]
+Line 34: params=['1.525', '48.65', '0.42', '3.14', '85']  ERROR: Failed to bracket target 85.000000 in αₜ∈[0.0001, 0.1]
+Line 35: params=['5.335', '18.27', '1.9', '3.14', '229']  ERROR: Failed to bracket target 229.000000 in αₜ∈[0.0001, 0.1]
+Line 36: params=['4.57', '3.23', '0.1', '3.14', '198']  ERROR: Failed to bracket target 198.000000 in αₜ∈[0.0001, 0.1]
+Line 37: params=['7.62', '6.01', '10', '3.14', '853']  ERROR: Failed to bracket target 853.000000 in αₜ∈[0.0001, 0.1]
+Line 39: params=['1.22', '13.8', '7.6', '3.14', '64']  ERROR: Failed to bracket target 64.000000 in αₜ∈[0.0001, 0.1]
+Line 40: params=['8.38', '32.56', '9.82', '3.14', '244']  ERROR: Failed to bracket target 244.000000 in αₜ∈[0.0001, 0.1]
+Line 41: params=['4.57', '15.6', '10.43', '3.14', '549']  ERROR: Failed to bracket target 549.000000 in αₜ∈[0.0001, 0.1]
+Line 42: params=['3.05', '9.23', '7.7', '3.14', '152']  ERROR: Failed to bracket target 152.000000 in αₜ∈[0.0001, 0.1]
+Line 46: params=['6', '1.3', '1', '3.17', '120']  ERROR: Failed to bracket target 120.000000 in αₜ∈[0.0001, 0.1]
+Line 48: params=['6', '1.4', '2', '3.17', '60']  ERROR: Failed to bracket target 60.000000 in αₜ∈[0.0001, 0.1]
+Line 50: params=['50', '0.25', '1', '3.08', '150']  ERROR: Cannot eval L_max for αₜ∈[0.0001, 0.1]
+Line 51: params=['50', '0.4', '1', '3.17', '100']  ERROR: Cannot eval L_max for αₜ∈[0.0001, 0.1]
+Line 52: params=['7.5', '0.31', '1', '3.14', '160']  ERROR: Failed to bracket target 160.000000 in αₜ∈[0.0001, 0.1]
+Line 54: params=['5.5', '33', '7.5', '3.14', '250']  ERROR: Failed to bracket target 250.000000 in αₜ∈[0.0001, 0.1]
+Line 55: params=['3.7', '123', '1.6', '3.08', '200']  ERROR: Failed to bracket target 200.000000 in αₜ∈[0.0001, 0.1]
+Line 56: params=['3', '230', '0.6', '3.14', '500']  ERROR: Failed to bracket target 500.000000 in αₜ∈[0.0001, 0.1]
+Line 61: params=['1.5', '8.9', '0.99', '3.14', '250']  ERROR: Failed to bracket target 250.000000 in αₜ∈[0.0001, 0.1]

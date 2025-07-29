@@ -21,7 +21,7 @@ def compute_lmax_with_sim(
     config.ca          = Ca
     config.gamma       = gamma
     config.orientation = orientation
-    config.dom_inc = 1.0
+    config.dom_inc = 0.2
 
     # 3) ensure the domain is big enough to capture the plume
     if target_Lmax is not None:
@@ -104,7 +104,7 @@ def find_alpha_t(
             except Exception:
                 pass
             print(f"Safe L_max has not been found for alpha = {at}")
-            at += 0.01
+            at += 0.0001
         raise RuntimeError(f"Cannot eval L_max for αₜ∈[{a}, {max_alpha}]")
 
     def calc_lmax(a: float):

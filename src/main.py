@@ -10,7 +10,7 @@ from at_simulation import ATSimulation
 from at_findalpha_t import process_input_file
 
 # Choose mode: "simulate" to run transport sim, "findalpha" to run alpha-finder
-MODE = "findalpha"  # "simulate" or "findalpha"
+MODE = "simulate"  # "simulate" or "findalpha"
 
 # When MODE == "simulate":
 CONFIG_PATH = "simulation_config.json"
@@ -24,6 +24,8 @@ STEP             = 0.01
 TOLERANCE        = 10.0
 MAX_ALPHA        = 0.1
 MAX_STAGNATION   = 5
+
+result = None
 
 def setup_logging():
     log_file = "aem_transport_simulation.log"
@@ -57,6 +59,7 @@ def run_findalpha():
 
 
 def main():
+    global result
     setup_logging()
 
     if MODE == "simulate":

@@ -1,166 +1,109 @@
 #!/usr/bin/env python3
-import sys
-import argparse
-import matplotlib.pyplot as plt_temp
+from traceback import print_tb
 
-from at_config import ATConfiguration
-from at_element import ATElement, ATElementType
+import matplotlib.pyplot as plt
+
+from at_config    import ATConfiguration
+from at_element   import ATElement, ATElementType
 from at_simulation import ATSimulation, create_mirrored_element
 
 
-def compute_lmax_with_sim(
-    alpha_t, r, C0, Ca, gamma,
-    orientation="horizontal",
-    target_Lmax=None      # ← take the target in here
-):
-    # 1) load JSON config
-    config = ATConfiguration.from_json("simulation_config.json")
-
-    # 2) override chemistry & orientation
-    config.alpha_t     = alpha_t
-    config.ca          = Ca
-    config.gamma       = gamma
-    config.orientation = orientation
-    config.dom_inc = 0.2
-
-    # 3) ensure the domain is big enough to capture the plume
+def compute_lmax(alpha, r, C0, Ca, gamma, orientation, target_Lmax):
+    """
+    Run ATSimulation up through calculate_lmax() and return sim.L_max.
+    Automatically enlarges dom_xmax to 1.1×target if provided.
+    """
+    cfg = ATConfiguration.from_json("simulation_config.json")
+    cfg.alpha_t     = alpha
+    cfg.ca          = Ca
+    cfg.gamma       = gamma
+    cfg.orientation = orientation
+    cfg.dom_inc     = 1.0
     if target_Lmax is not None:
-        # add a 10% margin
-        config.dom_xmax = max(config.dom_xmax, target_Lmax * 1.1) #add tolerance
+        cfg.dom_xmax = max(cfg.dom_xmax, target_Lmax * 1.1)
 
-    # 4) build your element(s) exactly as before...
+    # place element(s)
     if orientation == "vertical":
         base = ATElement(ATElementType.Circle, x=0.0, y=-(r+0.1), c=C0, r=r)
-        mirror = create_mirrored_element(base)
-        mirror.id = f"image_{base.id}"
-        config.elements = [base, mirror]
-        config.dom_ymax = 0.0
+        img  = create_mirrored_element(base)
+        img.id = f"image_{base.id}"
+        cfg.elements = [base, img]
+        cfg.dom_ymax  = 0.0
     else:
         base = ATElement(ATElementType.Circle, x=0.0, y=0.0, c=C0, r=r)
-        config.elements = [base]
+        cfg.elements = [base]
 
-    # 5) precompute outlines & solve
-    for e in config.elements:
-        e.calc_d_q(config.alpha_t, config.alpha_l, config.beta)
-        e.set_outline(config.num_cp)
+    # solve system
+    for e in cfg.elements:
+        e.calc_d_q(cfg.alpha_t, cfg.alpha_l, cfg.beta)
+        e.set_outline(cfg.num_cp)
 
-    sim = ATSimulation(config)
+    sim = ATSimulation(cfg)
     sim.solve_system(
-        config.alpha_l, config.alpha_t, config.beta,
-        config.gamma, config.ca,
-        config.num_terms, config.num_cp
+        cfg.alpha_l, cfg.alpha_t, cfg.beta,
+        cfg.gamma, cfg.ca,
+        cfg.num_terms, cfg.num_cp
     )
     sim.conc_array(
-        config.dom_xmin, config.dom_ymin,
-        config.dom_xmax, config.dom_ymax,
-        config.dom_inc
+        cfg.dom_xmin, cfg.dom_ymin,
+        cfg.dom_xmax, cfg.dom_ymax,
+        cfg.dom_inc
     )
-
-    # 6) now delegate to calculate_lmax()
     sim.calculate_lmax()
     return sim.L_max
 
-    #contour = plt.contour(sim.result, levels=[0])
-    #paths = contour.get_paths()
-    #plt.close()  # close the temporary figure
-    #if not paths or len(paths[0].vertices) == 0:
-    #    return None
 
-    #Lmax_val = int(paths[0].vertices[:, 0].max() * config.dom_inc)
-    #return Lmax_val
-
-def find_alpha_t(
-    target_Lmax: float,
-    r: float,
-    C0: float,
-    Ca: float,
-    gamma: float,
-    orientation: str,
-    alpha_start: float,
-    step: float,
-    tolerance: float,
-    max_alpha: float,
-    max_stagnation: int
-) -> tuple[float, float]:
+def find_alpha(
+    r, C0, Ca, gamma, target_Lmax,
+    orientation="horizontal",
+    alpha_start=0.02,
+    step=0.001,
+    tolerance=1e-3,
+    max_alpha=0.2,
+    max_stagnation=5
+):
     """
-    Find αₜ so L_max ≈ target_Lmax via:
-      1) Bracket with stepping (and early breaks on undershoot or tolerance)
-      2) Bisection refinement (with tolerance, undershoot, stagnation)
+    Solve L_max(α)=target_Lmax by monotonic bisection on [0, max_alpha]:
+      • Tolerance break when |L_mid − target_Lmax| ≤ tolerance
+      • Stagnation break if L_mid changes < tolerance for max_stagnation steps
+      • Crash‐nudge by stepping α by step until compute succeeds
     """
-    print("="*65)
-    print(f"target_Lmax = {target_Lmax}")
 
-    def safe_lmax(a: float):
+    def eval_L(a):
         at = a
         while at <= max_alpha:
             try:
-                L = compute_lmax_with_sim(
-                    at, r, C0, Ca, gamma,
-                    orientation, target_Lmax=target_Lmax
-                )
+                L = compute_lmax(at, r, C0, Ca, gamma,
+                                 orientation, target_Lmax)
                 if L is not None:
-                    print (f"Safe L_max has been found at L, a= {L}, {at}")
-                    return L, at
+                    return L
             except Exception:
                 pass
-            print(f"Safe L_max has not been found for alpha = {at}")
-            at += 0.0001
-        raise RuntimeError(f"Cannot eval L_max for αₜ∈[{a}, {max_alpha}]")
+            at += step
+        raise RuntimeError(f"Cannot compute L at αₜ ∈ {a, max_alpha}")
 
-    def calc_lmax(a: float):
-        at = a
-        while at <= max_alpha:
-            try:
-                L = compute_lmax_with_sim(
-                    at, r, C0, Ca, gamma,
-                    orientation, target_Lmax=target_Lmax
-                )
-                if L is not None:
-                    return L, at
-            except Exception:
-                pass
-            at += 0.01
-        raise RuntimeError(f"Cannot eval L_max for αₜ∈[{a}, {max_alpha}]")
+    # endpoints
+    L_lo = eval_L(alpha_start)
+    print(f"L_max(⍺_min) = {L_lo}")
+    if L_lo < target_Lmax:
+        raise RuntimeError(f"L_max(⍺_min) = {L_lo} < target {target_Lmax}")
+    elif abs(L_lo- target_Lmax) < tolerance:
+        return alpha_start, L_lo
 
-    # ─── 1) Bracket phase ────────────────────────────────────────────────
-    L_lo, a_lo = safe_lmax(alpha_start)
-    # early break on starting value
-    if L_lo < target_Lmax or abs(L_lo - target_Lmax) <= tolerance:
-        print("Tolerance Break or Undershoot Break")
-        return a_lo, L_lo
+    L_hi = eval_L(max_alpha)
+    print(f"L_max(⍺_max) = {L_hi}")
+    if L_hi > target_Lmax:
+        raise RuntimeError(f"L_max(⍺_max)={L_hi} > target {target_Lmax}")
+    elif abs(L_hi- target_Lmax) < tolerance:
+        return max_alpha, L_hi
 
-    a_hi = a_lo + step
-    while a_hi <= max_alpha:
-        L_hi, a_hi = calc_lmax(a_hi)
-
-        # early tolerance break
-        if abs(L_hi - target_Lmax) <= tolerance:
-            print(f"Tolerance Break")
-            return a_hi, L_hi
-
-        # classic bracket check
-        if (L_lo - target_Lmax) * (L_hi - target_Lmax) <= 0:
-            print(f"Bracket found between {a_lo} and {a_hi}.")
-            break
-
-        L_lo, a_lo = L_hi, a_hi
-        a_hi += step
-    else:
-        raise RuntimeError(
-            f"Failed to bracket target {target_Lmax:.6f} in αₜ∈[{alpha_start}, {max_alpha}]"
-        )
-
-    # ─── 2) Bisection + stagnation + tolerance + undershoot ─────────────
-    prev_L   = None
-    stagnate = 0
+    a_lo, a_hi = 0.0, max_alpha
+    prev_L, stagn = None, 0
 
     while True:
-        a_mid = 0.5 * (a_lo + a_hi)
-        if a_mid > max_alpha:
-            raise RuntimeError(f"αₜ exceeded max_alpha={max_alpha}")
-
-        L_mid, a_mid = calc_lmax(a_mid)
-        diff = L_mid - target_Lmax
+        a_mid = 0.5*(a_lo + a_hi)
+        L_mid = eval_L(a_mid)
+        diff  = L_mid - target_Lmax
         print(f"[dbg] α_mid={a_mid:.6f}, L_mid={L_mid:.6f}, diff={diff:.6f}")
 
         # tolerance break
@@ -168,63 +111,66 @@ def find_alpha_t(
             print(f"[break] within tolerance |{L_mid}-{target_Lmax}|={abs(diff):.6f} ≤ {tolerance}")
             return a_mid, L_mid
 
-        # stagnation break
+        # stagnation check
         if prev_L is not None and abs(L_mid - prev_L) < tolerance:
-            stagnate += 1
-            if stagnate >= max_stagnation:
-                raise RuntimeError(
-                    f"L_max stagnated at {L_mid:.6f} for {max_stagnation} steps"
-                )
+            stagn += 1
+            print(f"[stagnate] count={stagn}")
+            if stagn >= max_stagnation:
+                raise RuntimeError(f"L stalled at {L_mid} for {max_stagnation} steps")
         else:
-            stagnate = 0
+            stagn = 0
 
         prev_L = L_mid
 
-        # narrow bracket
-        if (L_lo - target_Lmax) * (L_mid - target_Lmax) <= 0:
-            a_hi, L_hi = a_mid, L_mid
+        # monotonic bisection
+        if diff > 0:
+            a_lo = a_mid
         else:
-            a_lo, L_lo = a_mid, L_mid
-
+            a_hi = a_mid
 
 def process_input_file(
-    input_file: str,
-    output_file: str,
-    orientation: str,
-    alpha_start: float,
-    step: float,
-    tolerance: float,
-    max_alpha: float,
-    max_stagnation: int
-) -> None:
+    input_file, output_file,
+    orientation="horizontal",
+    alpha_start=0.02,
+    step=0.001,
+    tolerance=1e-3,
+    max_alpha=0.2,
+    max_stagnation=5
+):
     """
-    Reads rows of 'r C0 Ca gamma target_Lmax' from input_file,
-    computes αₜ for each, and writes results & any skips to output_file.
+    Read lines 'r C0 Ca gamma target_Lmax' from input_file,
+    run find_alpha, and write 'αₜ,L_max' to output_file.
     """
-    with open(input_file, 'r') as f:
-        rows = [ln.split() for ln in f if ln.strip()]
-
+    lines = [ln.split() for ln in open(input_file) if ln.strip()]
     results, skipped = [], []
-    for idx, params in enumerate(rows, start=1):
+
+    for i, params in enumerate(lines, 1):
+        r, C0, Ca, gamma, target = map(float, params)
+        print("="*65)
+        print(f"Processing line {i}: target_Lmax = {target}")
         try:
-            r, C0, Ca, gamma, target = map(float, params)
-            α, Lout = find_alpha_t(
-                target, r, C0, Ca, gamma, orientation,
-                alpha_start, step, tolerance, max_alpha, max_stagnation
+            α, L = find_alpha(
+                r, C0, Ca, gamma, target,
+                orientation,
+                alpha_start,
+                step,
+                tolerance,
+                max_alpha,
+                max_stagnation
             )
+            warning = " [WARNING: αₜ > 0.1]" if α > 0.1 else ""
             results.append(
-                f"Line {idx}: r={r}, C0={C0}, Ca={Ca}, γ={gamma}, "
-                f"target={target} → αₜ={α:.6f}, Lmax={Lout:.6f}"
+                f"Line {i}: r={r}, C0={C0}, Ca={Ca}, γ={gamma}, "
+                f"target={target} → αₜ={α:.6f}, Lmax={L:.6f}{warning}"
             )
         except Exception as e:
-            skipped.append(f"Line {idx}: params={params}  ERROR: {e}")
+            print(f"  [ERROR] {e}")
+            skipped.append(f"Line {i}: params={params}  ERROR: {e}")
 
-    with open(output_file, 'w') as f:
-        f.write("\n".join(results))
-        if skipped:
-            f.write("\n\n# Skipped:\n")
-            f.write("\n".join(skipped))
-
-    print(f"[done] Wrote {len(results)} lines to '{output_file}'"
-          + (f", {len(skipped)} skipped." if skipped else ""))
-
+    with open(output_file, "w") as f:
+        for line in results:
+            f.write(line + "\n")
+        f.write("\nSkipped Cases:\n")
+        for line in skipped:
+            f.write(line + "\n")
+    print(f"Wrote {len(results)} results, {len(skipped)} skipped to '{output_file}'")

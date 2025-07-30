@@ -1,0 +1,64 @@
+Line 5: r=0.762, C0=43.28, Ca=12.6, γ=3.14, target=213.36 → αₜ=0.021875, Lmax=221.000000
+Line 7: r=0.9525, C0=4.03, Ca=3.8, γ=3.14, target=91.44 → αₜ=0.000100, Lmax=101.000000
+Line 8: r=0.5715, C0=14.1, Ca=3.7, γ=3.14, target=146.304 → αₜ=0.025000, Lmax=138.000000
+Line 17: r=0.762, C0=13.118, Ca=9.3, γ=3.14, target=53.34 → αₜ=0.050000, Lmax=48.000000
+Line 23: r=0.5715, C0=20.95, Ca=8.52, γ=3.14, target=106.68 → αₜ=0.018750, Lmax=115.000000
+Line 24: r=2.75, C0=4.246, Ca=7.9, γ=3.14, target=420.0 → αₜ=0.019531, Lmax=423.000000
+Line 32: r=1.1425, C0=9.23, Ca=2.8, γ=3.14, target=366.0 → αₜ=0.025000, Lmax=369.000000
+Line 33: r=0.7625, C0=2.84, Ca=0.6, γ=3.14, target=168.0 → αₜ=0.043750, Lmax=174.000000
+Line 43: r=0.7625, C0=9.23, Ca=7.7, γ=3.14, target=152.0 → αₜ=0.000100, Lmax=158.000000
+Line 47: r=1.5, C0=1.3, Ca=1.0, γ=3.17, target=120.0 → αₜ=0.062500, Lmax=113.000000
+Line 48: r=1.5, C0=2.4, Ca=2.0, γ=3.17, target=90.0 → αₜ=0.050000, Lmax=100.000000
+Line 49: r=1.5, C0=1.4, Ca=2.0, γ=3.17, target=60.0 → αₜ=0.075000, Lmax=55.000000
+Line 50: r=1.5, C0=0.7, Ca=2.0, γ=3.17, target=90.0 → αₜ=0.012500, Lmax=100.000000
+Line 53: r=1.875, C0=0.31, Ca=1.0, γ=3.14, target=160.0 → αₜ=0.015625, Lmax=161.000000
+Line 55: r=1.375, C0=33.0, Ca=7.5, γ=3.14, target=250.0 → αₜ=0.081250, Lmax=250.000000
+Line 62: r=0.375, C0=8.9, Ca=0.99, γ=3.14, target=250.0 → αₜ=0.015625, Lmax=254.000000
+
+Skipped Cases:
+Line 1: params=['0.9525', '0.02', '5.9', '3.14', '502.92']  ERROR: L_max(⍺_min) = 5 < target 502.92
+Line 2: params=['1.143', '3.55', '6.9', '3.14', '274.32']  ERROR: L_max(⍺_min) = 150 < target 274.32
+Line 3: params=['0.381', '28.00', '7.1', '3.14', '228.6']  ERROR: L_max(⍺_min) = 163 < target 228.6
+Line 4: params=['0.762', '0.45', '0.8', '3.14', '914.4']  ERROR: L_max(⍺_min) = 70 < target 914.4
+Line 6: params=['0.381', '5.26', '10.9', '3.14', '259.08']  ERROR: L_max(⍺_min) = 19 < target 259.08
+Line 9: params=['0.381', '29.64', '2.4', '3.14', '76.2']  ERROR: L_max(⍺_max)=100 > target 76.2
+Line 10: params=['0.9525', '0.68', '2.1', '3.14', '106.68']  ERROR: L_max(⍺_min) = 61 < target 106.68
+Line 11: params=['1.3335', '18.27', '1.9', '3.14', '350.52']  ERROR: L_max(⍺_max)=386 > target 350.52
+Line 12: params=['0.8001', '1.806', '5', '3.14', '182.88']  ERROR: L_max(⍺_min) = 54 < target 182.88
+Line 13: params=['0.381', '0.123', '6.5', '3.14', '42.672']  ERROR: Cannot compute L at αₜ ∈ (0.0001, 0.1)
+Line 14: params=['0.381', '12.84', '6.5', '3.14', '109.728']  ERROR: L_max(⍺_min) = 79 < target 109.728
+Line 15: params=['0.9525', '8.18', '8.6', '3.14', '219.456']  ERROR: L_max(⍺_min) = 187 < target 219.456
+Line 16: params=['0.381', '13.8', '9', '3.14', '96.012']  ERROR: L_max(⍺_min) = 64 < target 96.012
+Line 18: params=['0.5715', '84.9', '8.2', '3.14', '128.016']  ERROR: L_max(⍺_max)=139 > target 128.016
+Line 19: params=['0.9525', '22.9', '8.3', '3.14', '914.4']  ERROR: L_max(⍺_min) = 508 < target 914.4
+Line 20: params=['1.143', '49.3', '7.5', '3.14', '192.024']  ERROR: L_max(⍺_max)=212 > target 192.024
+Line 21: params=['0.381', '90.21', '6.8', '3.14', '60.96']  ERROR: L_max(⍺_max)=100 > target 60.96
+Line 22: params=['0.5715', '0.469', '11.2', '3.14', '60.96']  ERROR: L_max(⍺_min) = 5 < target 60.96
+Line 25: params=['0.762', '67', '3.7', '3.14', '207.264']  ERROR: L_max(⍺_max)=228 > target 207.264
+Line 26: params=['0.381', '0.0719', '8.4', '3.14', '67.056']  ERROR: Cannot compute L at αₜ ∈ (0.0001, 0.1)
+Line 27: params=['1.0668', '25.4', '5.5', '3.14', '71.3232']  ERROR: L_max(⍺_max)=100 > target 71.3232
+Line 28: params=['0.5334', '1.504', '2.4', '3.14', '396.24']  ERROR: L_max(⍺_min) = 48 < target 396.24
+Line 29: params=['0.2667', '5.375', '5.5', '3.14', '457.2']  ERROR: L_max(⍺_min) = 21 < target 457.2
+Line 30: params=['0.2667', '3.57', '0.00', '3.14', '57.3024']  ERROR: L_max(⍺_min) = 33 < target 57.3024
+Line 31: params=['0.38125', '5.22', '5.7', '3.14', '152']  ERROR: L_max(⍺_min) = 41 < target 152.0
+Line 34: params=['0.07625', '5.48', '7.4', '3.14', '107']  ERROR: Cannot compute L at αₜ ∈ (0.0001, 0.1)
+Line 35: params=['0.38125', '48.65', '0.42', '3.14', '85']  ERROR: L_max(⍺_max)=100 > target 85.0
+Line 36: params=['1.33375', '18.27', '1.9', '3.14', '229']  ERROR: L_max(⍺_max)=252 > target 229.0
+Line 37: params=['1.1425', '3.23', '0.1', '3.14', '198']  ERROR: L_max(⍺_max)=218 > target 198.0
+Line 38: params=['1.905', '6.01', '10', '3.14', '853']  ERROR: L_max(⍺_min) = 428 < target 853.0
+Line 39: params=['0.305', '0.96', '3.9', '3.14', '30']  ERROR: Cannot compute L at αₜ ∈ (0.0001, 0.1)
+Line 40: params=['0.305', '13.8', '7.6', '3.14', '64']  ERROR: L_max(⍺_min) = 56 < target 64.0
+Line 41: params=['2.095', '32.56', '9.82', '3.14', '244']  ERROR: L_max(⍺_max)=269 > target 244.0
+Line 42: params=['1.1425', '15.6', '10.43', '3.14', '549']  ERROR: L_max(⍺_min) = 394 < target 549.0
+Line 44: params=['0.4575', '3.13', '8', '3.14', '96']  ERROR: L_max(⍺_min) = 24 < target 96.0
+Line 45: params=['1.5', '0.07', '1', '3.17', '140']  ERROR: L_max(⍺_min) = 57 < target 140.0
+Line 46: params=['1.5', '0.04', '1', '3.13', '90']  ERROR: L_max(⍺_min) = 40 < target 90.0
+Line 51: params=['12.5', '0.25', '1', '3.08', '150']  ERROR: Cannot compute L at αₜ ∈ (0.0001, 0.1)
+Line 52: params=['12.5', '0.4', '1', '3.17', '100']  ERROR: Cannot compute L at αₜ ∈ (0.0001, 0.1)
+Line 54: params=['0.25', '0.01', '7.5', '3.14', '120']  ERROR: Cannot compute L at αₜ ∈ (0.0001, 0.1)
+Line 56: params=['0.925', '123', '1.6', '3.08', '200']  ERROR: L_max(⍺_max)=221 > target 200.0
+Line 57: params=['0.75', '230', '0.6', '3.14', '500']  ERROR: L_max(⍺_max)=550 > target 500.0
+Line 58: params=['1.25', '0.01', '4', '3.08', '100']  ERROR: L_max(⍺_min) = 5 < target 100.0
+Line 59: params=['0.16875', '0.01', '0.28', '3.08', '420']  ERROR: Cannot compute L at αₜ ∈ (0.0001, 0.1)
+Line 60: params=['0.2875', '0.017', '3.2', '3.08', '450']  ERROR: Cannot compute L at αₜ ∈ (0.0001, 0.1)
+Line 61: params=['0.46875', '0.0004', '1.29', '3.08', '140']  ERROR: L_max(⍺_min) = 0 < target 140.0

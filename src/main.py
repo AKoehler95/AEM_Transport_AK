@@ -16,14 +16,19 @@ MODE = "findalpha"  # "simulate" or "findalpha"
 CONFIG_PATH = "simulation_config.json"
 
 # When MODE == "findalpha":
-INPUT_FILE       = "input_values_O2_half.txt"
-OUTPUT_FILE      = "output_results2.txt"
-ORIENTATION      = "vertical"        # "horizontal" or "vertical"
+INPUT_FILE       = "input_values.txt"
+OUTPUT_FILE      = "output_values.txt"
+STATS_FILE       = "stats_values.txt"
+ORIENTATION      = "vertical"   # "horizontal" or "vertical"
+SOURCE_THICKNESS_MODIFIER = 0.25   # set between 0.0 and 1.0 to determine what percentage of
+                                   # aquifer thickness is radius of source thickness
 ALPHA_START      = 0.0001
-STEP             = 0.01
+STEP             = 0.0001
 TOLERANCE        = 10.0
-MAX_ALPHA        = 0.1
+MAX_ALPHA        = 0.2
 MAX_STAGNATION   = 5
+
+result = None
 
 def setup_logging():
     log_file = "aem_transport_simulation.log"
@@ -38,16 +43,18 @@ def run_simulation():
     config = ATConfiguration.from_json(CONFIG_PATH)
     sim = ATSimulation(config)
     sim.run()
+
     # Return or process sim.result_tuple as needed
     return sim.result_tuple
-
 
 def run_findalpha():
     # Run the alpha-finder in batch mode
     process_input_file(
         INPUT_FILE,
         OUTPUT_FILE,
+        STATS_FILE,
         ORIENTATION,
+        SOURCE_THICKNESS_MODIFIER,
         ALPHA_START,
         STEP,
         TOLERANCE,
@@ -57,19 +64,18 @@ def run_findalpha():
 
 
 def main():
+    global result
     setup_logging()
 
     if MODE == "simulate":
         result = run_simulation()
-        # You can add code here to handle or display 'result'
         print("Simulation completed. Result tuple returned.")
     elif MODE == "findalpha":
         run_findalpha()
-        print(f"Alpha-finder completed. Results in '{OUTPUT_FILE}'.")
+        print(f"Inverse Dispersivity Finder completed. Results in '{OUTPUT_FILE}'. Element Statistics in '{STATS_FILE}'.")
     else:
         raise ValueError(f"Unknown MODE '{MODE}'. Use 'simulate' or 'findalpha'.")
 
 
 if __name__ == "__main__":
     main()
-

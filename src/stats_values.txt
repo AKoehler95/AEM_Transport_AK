@@ -1,0 +1,396 @@
+
+=== Stats for Line 1 ===
+Element 1:
+  Min = 3.534971257 mg/l
+  Max = 3.564180817 mg/l
+  Mean = 3.550007209 mg/l
+  Standard Deviation = 0.007360404 mg/l
+Element 2:
+  Min = -24.991527766 mg/l
+  Max = -24.899809748 mg/l
+  Mean = -24.947022637 mg/l
+  Standard Deviation = 0.023111668 mg/l
+
+=== Stats for Line 2 ===
+Element 1:
+  Min = 27.999822787 mg/l
+  Max = 28.000169124 mg/l
+  Mean = 27.999999757 mg/l
+  Standard Deviation = 9.6727e-05 mg/l
+Element 2:
+  Min = -102.12053105 mg/l
+  Max = -102.11944355 mg/l
+  Mean = -102.119999237 mg/l
+  Standard Deviation = 0.000303723 mg/l
+
+=== Stats for Line 4 ===
+Element 1:
+  Min = 43.275553883 mg/l
+  Max = 43.284359361 mg/l
+  Mean = 43.279996994 mg/l
+  Standard Deviation = 0.002267741 mg/l
+Element 2:
+  Min = -161.112888393 mg/l
+  Max = -161.085239191 mg/l
+  Mean = -161.09919056 mg/l
+  Standard Deviation = 0.007120707 mg/l
+
+=== Stats for Line 6 ===
+Element 1:
+  Min = 0.61389439 mg/l
+  Max = 5.713621825 mg/l
+  Mean = 3.594070287 mg/l
+  Standard Deviation = 1.457769361 mg/l
+Element 2:
+  Min = -25.54077253 mg/l
+  Max = -9.527628384 mg/l
+  Mean = -18.885380701 mg/l
+  Standard Deviation = 4.577395795 mg/l
+
+=== Stats for Line 7 ===
+Element 1:
+  Min = 14.099483465 mg/l
+  Max = 14.100507228 mg/l
+  Mean = 14.099999636 mg/l
+  Standard Deviation = 0.00027529 mg/l
+Element 2:
+  Min = -51.675592695 mg/l
+  Max = -51.67237808 mg/l
+  Mean = -51.673998857 mg/l
+  Standard Deviation = 0.00086441 mg/l
+
+=== Stats for Line 8 ===
+Element 1:
+  Min = 29.639700307 mg/l
+  Max = 29.640293 mg/l
+  Mean = 29.639999703 mg/l
+  Standard Deviation = 0.000165318 mg/l
+Element 2:
+  Min = -97.870520009 mg/l
+  Max = -97.868659003 mg/l
+  Mean = -97.869599067 mg/l
+  Standard Deviation = 0.000519097 mg/l
+
+=== Stats for Line 9 ===
+Element 1:
+  Min = 0.679421479 mg/l
+  Max = 0.680580488 mg/l
+  Mean = 0.680000366 mg/l
+  Standard Deviation = 0.000300581 mg/l
+Element 2:
+  Min = -6.337022732 mg/l
+  Max = -6.333383444 mg/l
+  Mean = -6.335201148 mg/l
+  Standard Deviation = 0.000943824 mg/l
+
+=== Stats for Line 10 ===
+Element 1:
+  Min = 18.25353736 mg/l
+  Max = 18.285869463 mg/l
+  Mean = 18.269984426 mg/l
+  Standard Deviation = 0.007449254 mg/l
+Element 2:
+  Min = -61.217630112 mg/l
+  Max = -61.116107311 mg/l
+  Mean = -61.167751096 mg/l
+  Standard Deviation = 0.023390659 mg/l
+
+=== Stats for Line 14 ===
+Element 1:
+  Min = 8.178045446 mg/l
+  Max = 8.181985898 mg/l
+  Mean = 8.180000453 mg/l
+  Standard Deviation = 0.000988157 mg/l
+Element 2:
+  Min = -42.891435721 mg/l
+  Max = -42.879062702 mg/l
+  Mean = -42.885201422 mg/l
+  Standard Deviation = 0.003102814 mg/l
+
+=== Stats for Line 16 ===
+Element 1:
+  Min = 13.116265732 mg/l
+  Max = 13.119698357 mg/l
+  Mean = 13.117998765 mg/l
+  Standard Deviation = 0.000880988 mg/l
+Element 2:
+  Min = -59.795852844 mg/l
+  Max = -59.785074399 mg/l
+  Mean = -59.790516122 mg/l
+  Standard Deviation = 0.002766303 mg/l
+
+=== Stats for Line 17 ===
+Element 1:
+  Min = 84.896016707 mg/l
+  Max = 84.90389796 mg/l
+  Mean = 84.899997115 mg/l
+  Standard Deviation = 0.00208834 mg/l
+Element 2:
+  Min = -282.998239572 mg/l
+  Max = -282.973492462 mg/l
+  Mean = -282.985990942 mg/l
+  Standard Deviation = 0.006557387 mg/l
+
+=== Stats for Line 18 ===
+Element 1:
+  Min = 22.884818467 mg/l
+  Max = 22.914963021 mg/l
+  Mean = 22.900008703 mg/l
+  Standard Deviation = 0.00771993 mg/l
+Element 2:
+  Min = -88.552983887 mg/l
+  Max = -88.458329986 mg/l
+  Mean = -88.506027326 mg/l
+  Standard Deviation = 0.02424058 mg/l
+
+=== Stats for Line 19 ===
+Element 1:
+  Min = 49.272783042 mg/l
+  Max = 49.326361249 mg/l
+  Mean = 49.299976472 mg/l
+  Standard Deviation = 0.012692806 mg/l
+Element 2:
+  Min = -169.884774321 mg/l
+  Max = -169.716538752 mg/l
+  Mean = -169.801926123 mg/l
+  Standard Deviation = 0.039855411 mg/l
+
+=== Stats for Line 20 ===
+Element 1:
+  Min = 90.208709331 mg/l
+  Max = 90.211260747 mg/l
+  Mean = 90.209998839 mg/l
+  Standard Deviation = 0.000701808 mg/l
+Element 2:
+  Min = -296.863358559 mg/l
+  Max = -296.855347822 mg/l
+  Mean = -296.859396355 mg/l
+  Standard Deviation = 0.002203674 mg/l
+
+=== Stats for Line 22 ===
+Element 1:
+  Min = 20.949199981 mg/l
+  Max = 20.950785604 mg/l
+  Mean = 20.949999436 mg/l
+  Standard Deviation = 0.000426374 mg/l
+Element 2:
+  Min = -82.825466795 mg/l
+  Max = -82.820487941 mg/l
+  Mean = -82.82299823 mg/l
+  Standard Deviation = 0.001338815 mg/l
+
+=== Stats for Line 23 ===
+Element 1:
+  Min = 4.099567843 mg/l
+  Max = 4.37797343 mg/l
+  Mean = 4.246856004 mg/l
+  Standard Deviation = 0.080614806 mg/l
+Element 2:
+  Min = -29.546836571 mg/l
+  Max = -28.672643027 mg/l
+  Mean = -29.135127853 mg/l
+  Standard Deviation = 0.253130491 mg/l
+
+=== Stats for Line 24 ===
+Element 1:
+  Min = 66.987933983 mg/l
+  Max = 67.011679942 mg/l
+  Mean = 66.999990708 mg/l
+  Standard Deviation = 0.005922374 mg/l
+Element 2:
+  Min = -217.816675039 mg/l
+  Max = -217.742112706 mg/l
+  Mean = -217.779970823 mg/l
+  Standard Deviation = 0.018596256 mg/l
+
+=== Stats for Line 26 ===
+Element 1:
+  Min = 25.383211209 mg/l
+  Max = 25.41611251 mg/l
+  Mean = 25.399985059 mg/l
+  Standard Deviation = 0.007696882 mg/l
+Element 2:
+  Min = -90.806593264 mg/l
+  Max = -90.703283198 mg/l
+  Mean = -90.755953085 mg/l
+  Standard Deviation = 0.02416821 mg/l
+
+=== Stats for Line 31 ===
+Element 1:
+  Min = 9.226559367 mg/l
+  Max = 9.23334767 mg/l
+  Mean = 9.229997567 mg/l
+  Standard Deviation = 0.001636463 mg/l
+Element 2:
+  Min = -34.592711682 mg/l
+  Max = -34.571396413 mg/l
+  Mean = -34.582192362 mg/l
+  Standard Deviation = 0.005138494 mg/l
+
+=== Stats for Line 32 ===
+Element 1:
+  Min = 2.839672331 mg/l
+  Max = 2.840320882 mg/l
+  Mean = 2.839999767 mg/l
+  Standard Deviation = 0.000166435 mg/l
+Element 2:
+  Min = -10.118607568 mg/l
+  Max = -10.116571118 mg/l
+  Mean = -10.117599267 mg/l
+  Standard Deviation = 0.000522605 mg/l
+
+=== Stats for Line 35 ===
+Element 1:
+  Min = 18.248599283 mg/l
+  Max = 18.29042613 mg/l
+  Mean = 18.26997865 mg/l
+  Standard Deviation = 0.009475503 mg/l
+Element 2:
+  Min = -61.23193805 mg/l
+  Max = -61.100601748 mg/l
+  Mean = -61.16773296 mg/l
+  Standard Deviation = 0.029753078 mg/l
+
+=== Stats for Line 37 ===
+Element 1:
+  Min = 4.466918274 mg/l
+  Max = 7.059382874 mg/l
+  Mean = 5.995210655 mg/l
+  Standard Deviation = 0.638444832 mg/l
+Element 2:
+  Min = -42.166462224 mg/l
+  Max = -34.026123381 mg/l
+  Mean = -38.824961457 mg/l
+  Standard Deviation = 2.004716773 mg/l
+
+=== Stats for Line 40 ===
+Element 1:
+  Min = 32.453763152 mg/l
+  Max = 32.661516982 mg/l
+  Mean = 32.559860642 mg/l
+  Standard Deviation = 0.04436923 mg/l
+Element 2:
+  Min = -122.197163325 mg/l
+  Max = -121.544816296 mg/l
+  Mean = -121.877962416 mg/l
+  Standard Deviation = 0.139319383 mg/l
+
+=== Stats for Line 41 ===
+Element 1:
+  Min = 15.574953178 mg/l
+  Max = 15.624265157 mg/l
+  Mean = 15.600017515 mg/l
+  Standard Deviation = 0.012670912 mg/l
+Element 2:
+  Min = -69.920192594 mg/l
+  Max = -69.765352979 mg/l
+  Mean = -69.844054998 mg/l
+  Standard Deviation = 0.039786663 mg/l
+
+=== Stats for Line 42 ===
+Element 1:
+  Min = 9.229038344 mg/l
+  Max = 9.230930903 mg/l
+  Mean = 9.229999506 mg/l
+  Standard Deviation = 0.000484337 mg/l
+Element 2:
+  Min = -44.385123035 mg/l
+  Max = -44.379180402 mg/l
+  Mean = -44.382198449 mg/l
+  Standard Deviation = 0.001520819 mg/l
+
+=== Stats for Line 46 ===
+Element 1:
+  Min = 1.298495809 mg/l
+  Max = 1.301457671 mg/l
+  Mean = 1.299998589 mg/l
+  Standard Deviation = 0.000679496 mg/l
+Element 2:
+  Min = -6.125620818 mg/l
+  Max = -6.116231714 mg/l
+  Mean = -6.120995527 mg/l
+  Standard Deviation = 0.002154003 mg/l
+
+=== Stats for Line 47 ===
+Element 1:
+  Min = 2.397376724 mg/l
+  Max = 2.402543223 mg/l
+  Mean = 2.399997633 mg/l
+  Standard Deviation = 0.001187831 mg/l
+Element 2:
+  Min = -11.616062016 mg/l
+  Max = -11.599684214 mg/l
+  Mean = -11.607992497 mg/l
+  Standard Deviation = 0.003765426 mg/l
+
+=== Stats for Line 48 ===
+Element 1:
+  Min = 1.39824223 mg/l
+  Max = 1.401704129 mg/l
+  Mean = 1.399998414 mg/l
+  Standard Deviation = 0.000795926 mg/l
+Element 2:
+  Min = -8.443402088 mg/l
+  Max = -8.432427869 mg/l
+  Mean = -8.437994972 mg/l
+  Standard Deviation = 0.002523086 mg/l
+
+=== Stats for Line 49 ===
+Element 1:
+  Min = 0.698423754 mg/l
+  Max = 0.701602832 mg/l
+  Mean = 0.70000177 mg/l
+  Standard Deviation = 0.00086689 mg/l
+Element 2:
+  Min = -6.224080977 mg/l
+  Max = -6.214003301 mg/l
+  Mean = -6.219005611 mg/l
+  Standard Deviation = 0.00274804 mg/l
+
+=== Stats for Line 50 ===
+Element 1:
+  Min = 0.1570863 mg/l
+  Max = 0.313057793 mg/l
+  Mean = 0.249405164 mg/l
+  Standard Deviation = 0.02698515 mg/l
+Element 2:
+  Min = -2.964218003 mg/l
+  Max = -2.483825803 mg/l
+  Mean = -2.768167905 mg/l
+  Standard Deviation = 0.083114262 mg/l
+
+=== Stats for Line 52 ===
+Element 1:
+  Min = 0.307517071 mg/l
+  Max = 0.312404335 mg/l
+  Mean = 0.310004521 mg/l
+  Standard Deviation = 0.001342505 mg/l
+Element 2:
+  Min = -2.980949611 mg/l
+  Max = -2.965603604 mg/l
+  Mean = -2.973414196 mg/l
+  Standard Deviation = 0.004215465 mg/l
+
+=== Stats for Line 54 ===
+Element 1:
+  Min = 32.971843573 mg/l
+  Max = 33.027294704 mg/l
+  Mean = 32.99997405 mg/l
+  Standard Deviation = 0.012851816 mg/l
+Element 2:
+  Min = -118.705705372 mg/l
+  Max = -118.53158882 mg/l
+  Mean = -118.619918515 mg/l
+  Standard Deviation = 0.040354702 mg/l
+
+=== Stats for Line 61 ===
+Element 1:
+  Min = 8.89994511 mg/l
+  Max = 8.900053125 mg/l
+  Mean = 8.899999927 mg/l
+  Standard Deviation = 3.0561e-05 mg/l
+Element 2:
+  Min = -29.926166812 mg/l
+  Max = -29.925827646 mg/l
+  Mean = -29.925999772 mg/l
+  Standard Deviation = 9.5962e-05 mg/l

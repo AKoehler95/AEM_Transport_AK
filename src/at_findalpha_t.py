@@ -100,6 +100,7 @@ def find_alpha(
             count +=1
             if count > 5:
                 multiplier *= 5
+                count = 0
         raise RuntimeError(f"Cannot compute L at αₜ ∈ {a, max_alpha}")
 
     L_lo, sim = eval_L(alpha_start)
@@ -167,7 +168,7 @@ def process_input_file(
         print(f"Processing line {i}: target_Lmax = {target}")
         try:
             α, L, sim = find_alpha(
-                r*source_thickness_modifier, C0, Ca, gamma, target,
+                r/2*source_thickness_modifier, C0, Ca, gamma, target,
                 orientation,
                 alpha_start,
                 step,

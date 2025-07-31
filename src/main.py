@@ -16,8 +16,8 @@ MODE = "findalpha"  # "simulate" or "findalpha"
 CONFIG_PATH = "simulation_config.json"
 
 # When MODE == "findalpha":
-INPUT_FILE       = "input_values.txt"
-OUTPUT_FILE      = "output_values.txt"
+INPUT_FILE       = "input_values_O2.txt"
+OUTPUT_FILE      = "output_values_O2_025.txt"
 STATS_FILE       = "stats_values.txt"
 ORIENTATION      = "vertical"   # "horizontal" or "vertical"
 SOURCE_THICKNESS_MODIFIER = 0.25   # set between 0.0 and 1.0 to determine what percentage of

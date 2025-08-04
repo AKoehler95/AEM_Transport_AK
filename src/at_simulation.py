@@ -7,22 +7,16 @@ import timeit
 from datetime import timedelta
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt_temp
 import matplotlib as mpl
 import logging
 import json
 import os
 from concurrent.futures import ProcessPoolExecutor
 
-# External library:
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.pyplot as plt_temp
-import matplotlib as mpl
-
 # Local imports:
 from at_config import ATConfiguration
 from at_element import ATElement, ATElementType
-
 
 logger = logging.getLogger(__name__)
 

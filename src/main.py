@@ -10,7 +10,7 @@ from at_simulation import ATSimulation
 from at_findalpha_t import process_input_file
 
 # Choose mode: "simulate" to run transport sim, "findalpha" to run alpha-finder
-MODE = "findalpha"  # "simulate" or "findalpha"
+MODE = "simulate"  # "simulate" or "findalpha"
 
 # When MODE == "simulate":
 CONFIG_PATH = "simulation_config.json"

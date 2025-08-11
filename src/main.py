@@ -7,7 +7,7 @@ import logging
 # Local imports
 from at_config import ATConfiguration
 from at_simulation import ATSimulation
-from at_findalpha_t import process_input_file
+from at_findalpha_t import process_input_file_with_logging
 
 # Choose mode: "simulate" to run transport sim, "findalpha" to run alpha-finder
 MODE = "simulate"  # "simulate" or "findalpha"
@@ -17,9 +17,10 @@ CONFIG_PATH = "simulation_config.json"
 
 # When MODE == "findalpha":
 INPUT_FILE       = "input_values_O2.txt"
-OUTPUT_FILE      = "output_values_O2_025.txt"
-STATS_FILE       = "stats_values.txt"
+OUTPUT_FILE      = "output_values_O2.txt"
+STATS_FILE       = "stats_values_O2.txt"
 ORIENTATION      = "vertical"   # "horizontal" or "vertical"
+ELEM_KIND        = "Circle"       #Circle or Line
 SOURCE_THICKNESS_MODIFIER = 0.25   # set between 0.0 and 1.0 to determine what percentage of
                                    # aquifer thickness is radius of source thickness
 ALPHA_START      = 0.0001
@@ -48,12 +49,13 @@ def run_simulation():
     return sim.result_tuple
 
 def run_findalpha():
-    # Run the alpha-finder in batch mode
-    process_input_file(
+    # Run the alpha-finder in batch mode with logging
+    process_input_file_with_logging(
         INPUT_FILE,
         OUTPUT_FILE,
         STATS_FILE,
         ORIENTATION,
+        ELEM_KIND,
         SOURCE_THICKNESS_MODIFIER,
         ALPHA_START,
         STEP,
@@ -72,7 +74,7 @@ def main():
         print("Simulation completed. Result tuple returned.")
     elif MODE == "findalpha":
         run_findalpha()
-        print(f"Inverse Dispersivity Finder completed. Results in '{OUTPUT_FILE}'. Element Statistics in '{STATS_FILE}'.")
+        print(f"Inverse Dispersivity Finder completed. Results in '{OUTPUT_FILE}'. Element Statistics in '{STATS_FILE}'. Console output logged to 'findalpha_log.txt'.")
     else:
         raise ValueError(f"Unknown MODE '{MODE}'. Use 'simulate' or 'findalpha'.")
 

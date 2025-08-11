@@ -5,22 +5,23 @@
 import math
 import timeit
 from datetime import timedelta
+import logging
+import json
+import os
+
+# External library:
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.pyplot as plt_temp
 import matplotlib as mpl
-import logging
-import json
-import os
-from concurrent.futures import ProcessPoolExecutor
+from matplotlib.ticker import MaxNLocator
+from multiprocessing import Pool, cpu_count
 
 # Local imports:
 from at_config import ATConfiguration
 from at_element import ATElement, ATElementType
 
 logger = logging.getLogger(__name__)
-
-from multiprocessing import Pool, cpu_count
 
 _shared_elements = None
 _shared_coeff = None
@@ -615,15 +616,9 @@ class ATSimulation:
             colors='k'
         )
 
-        x_ticks = list(np.arange(xmin, xmax, 100))
-        if x_ticks[-1] < xmax:
-            x_ticks.append(xmax)
-        y_ticks = list(np.arange(ymin, ymax, 10))
-        if y_ticks[-1] < ymax:
-            y_ticks.append(ymax)
-
-        plt.xlim(xmin, xmax)
-        plt.ylim(ymin, ymax)
+        ax = plt.gca()
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=7))  # ~ticks for X
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
 
         plt.xlabel("$x$ (m)")
         plt.ylabel("$z$ (m)" if self.config.orientation == "vertical" else "$y$ (m)")

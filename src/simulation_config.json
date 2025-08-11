@@ -4,22 +4,22 @@
     "ca": 8.0,
     "gamma": 3.5,
     "dom_xmin": 0.0,
-    "dom_xmax": 50.0,
-    "dom_ymin": -3.0,
+    "dom_xmax": 500.0,
+    "dom_ymin": -5.0,
     "dom_ymax": 0.0,
-    "dom_inc": 1,
+    "dom_inc": 0.1,
     "num_cp": 100,
-    "num_terms": 7,
+    "num_terms": 9,
     "orientation": "vertical",
     "plot_aspect":"not scaled",
     "elements": [
         {
-            "kind": "circle",
-            "x": 3,
-            "y": -5,
-            "c": 5,
-            "r": 1.0,
-            "theta": 0,
+            "kind": "line",
+            "x": 0,
+            "y": -1.7,
+            "c": 2,
+            "l": 3.0,
+            "theta": 90,
             "id": "donor"
         }
     ]

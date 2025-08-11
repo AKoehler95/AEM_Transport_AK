@@ -4,21 +4,21 @@
     "ca": 8.0,
     "gamma": 3.5,
     "dom_xmin": 0.0,
-    "dom_xmax": 100.0,
+    "dom_xmax": 50.0,
     "dom_ymin": -3.0,
     "dom_ymax": 0.0,
-    "dom_inc": 0.1,
+    "dom_inc": 1,
     "num_cp": 100,
     "num_terms": 7,
     "orientation": "vertical",
     "plot_aspect":"not scaled",
     "elements": [
         {
-            "kind": "line",
+            "kind": "circle",
             "x": 3,
-            "y": -0.2,
+            "y": -5,
             "c": 5,
-            "l": 5.0,
+            "r": 1.0,
             "theta": 0,
             "id": "donor"
         }

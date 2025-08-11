@@ -172,3 +172,4 @@ cython_debug/
 
 Results/
 simulation_config.json
+src/simulation_config.json

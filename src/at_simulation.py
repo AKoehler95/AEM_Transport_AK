@@ -181,7 +181,7 @@ class ATSimulation:
         if self.config.orientation == "vertical":
             updated_elements = []
             for elem in self.config.elements:
-                if elem.y > -(elem.r+0.1):
+                if elem.y > -(elem.r*np.sin(elem.theta)+0.1):
                     raise ValueError(f"Element '{elem.id}' must have y < -(r+0.1) for vertical orientation.")
                 updated_elements.append(elem)
                 mirrored = create_mirrored_element(elem)

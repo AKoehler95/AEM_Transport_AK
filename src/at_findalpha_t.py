@@ -7,7 +7,7 @@ from math import cos, sin, pi
 import matplotlib.pyplot as plt
 
 from at_config import ATConfiguration
-from at_element_OG import ATElement, ATElementType
+from at_element import ATElement, ATElementType
 from at_simulation import ATSimulation, create_mirrored_element
 
 class TeeOutput:
@@ -40,9 +40,9 @@ def compute_lmax(alpha, r, C0, Ca, gamma, orientation, elem_kind, target_Lmax):
 
     if orientation == "vertical":
         if elem_kind == "Circle":
-            base = ATElement(ATElementType.Circle, x=0.0, y=-(r + 0.1), c=C0, r=r)
+            base = ATElement(ATElementType.Circle, x=0.0, y=-(r + 0.01), c=C0, r=r)
         elif elem_kind == "Line":
-            base = ATElement(ATElementType.Line, x=0.0, y=-(r + 0.1), c=C0, r=r)
+            base = ATElement(ATElementType.Line, x=0.0, y=-(r + 0.01), c=C0, r=r)
         else:
             raise ValueError(f"Unknown element type: {elem_kind}")
         img = create_mirrored_element(base)
@@ -172,7 +172,7 @@ def find_alpha(
         else:
             a_hi = a_mid
 
-
+'''
 def process_input_file(
         input_file,
         output_file,
@@ -226,7 +226,7 @@ def process_input_file(
         for line in skipped:
             f.write(line + "\n")
     print(f"Wrote {len(results)} results, {len(skipped)} skipped to '{output_file}'")
-
+'''
 
 def process_input_file_with_logging(
         input_file,

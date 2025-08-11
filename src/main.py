@@ -1,5 +1,4 @@
 # Written by Willi Kappler, willi.kappler@uni-tuebingen.de
-
 # Based on code from Anton Köhler
 
 # Python std library
@@ -17,9 +16,9 @@ MODE = "simulate"  # "simulate" or "findalpha"
 CONFIG_PATH = "simulation_config.json"
 
 # When MODE == "findalpha":
-INPUT_FILE       = "input_values_O2.txt"
-OUTPUT_FILE      = "output_values_O2.txt"
-STATS_FILE       = "stats_values_O2.txt"
+INPUT_FILE       = "input_values.txt"
+OUTPUT_FILE      = "output_values.txt"
+STATS_FILE       = "stats_values.txt"
 ORIENTATION      = "vertical"   # "horizontal" or "vertical"
 ELEM_KIND        = "Circle"       #Circle or Line
 SOURCE_THICKNESS_MODIFIER = 0.25   # set between 0.0 and 1.0 to determine what percentage of

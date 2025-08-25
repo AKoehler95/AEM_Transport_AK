@@ -178,7 +178,7 @@ def create_zero_isoline(elem: ATElement) -> ATElement:
         kind=ATElementType.Line,
         x=elem.x,
         y=0.0,
-        c=0.0,          # enforce zero concentration on the isoline segment
+        c=-8.0, #elem.c,          # enforce zero concentration on the isoline segment
         r=elem.r,       # same half-length/radius as the input element
         theta=0.0       # horizontal along the isoline y=0
     )
@@ -201,7 +201,7 @@ class ATSimulation:
         if self.config.orientation == "vertical":
             updated_elements = []
             for elem in self.config.elements:
-                if elem.y > -(elem.r*np.sin(elem.theta)+0.1):
+                if elem.y > -(elem.r*np.sin(elem.theta)+0.001):
                     raise ValueError(f"Element '{elem.id}' must have y < -(r+0.1) for vertical orientation.")
                 updated_elements.append(elem)
                 mirrored = create_mirrored_element(elem)
@@ -640,6 +640,13 @@ class ATSimulation:
             levels=[0],
             linewidths=2,
             colors='k'
+        )
+        isolines = plt.contour(
+            X, Y,
+            self.result,
+            levels=np.linspace(-50,50,100),
+            linewidth=0.5,
+            extend='max'
         )
 
         ax = plt.gca()

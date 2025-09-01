@@ -211,7 +211,7 @@ class ATSimulation:
                 updated_elements.append(mirrored)
                 updated_elements.append(zero_isoline)
             self.config.elements = updated_elements
-            self.config.dom_ymax = 10
+            self.config.dom_ymax = 0
 
         start: float = timeit.default_timer()
 
@@ -641,16 +641,16 @@ class ATSimulation:
             linewidths=2,
             colors='k'
         )
-        isolines = plt.contour(
-            X, Y,
-            self.result,
-            levels=np.linspace(-50,50,100),
-            linewidth=0.5,
-            extend='max'
-        )
+        # isolines = plt.contour(
+        #     X, Y,
+        #     self.result,
+        #     levels=np.linspace(-50,50,100),
+        #     linewidth=0.5,
+        #     extend='max'
+        # )
 
         ax = plt.gca()
-        ax.xaxis.set_major_locator(MaxNLocator(nbins=7))  # ~ticks for X
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=5))  # ~ticks for X
         ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
 
         plt.xlabel("$x$ (m)")

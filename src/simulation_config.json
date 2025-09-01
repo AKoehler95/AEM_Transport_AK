@@ -1,13 +1,13 @@
 {
     "alpha_l": 2.0,
-    "alpha_t": 0.005,
+    "alpha_t": 0.05,
     "ca": 8.0,
     "gamma": 3.5,
     "dom_xmin": 0.0,
-    "dom_xmax": 25.0,
-    "dom_ymin": -2.0,
+    "dom_xmax": 10.0,
+    "dom_ymin": -8.0,
     "dom_ymax": 0.0,
-    "dom_inc": 0.1,
+    "dom_inc": 0.05,
     "num_cp": 100,
     "num_terms": 7,
     "orientation": "vertical",
@@ -15,93 +15,57 @@
     "elements": [
         
         {
-            "kind": "circle",
-            "x": 1,
-            "y": -0.1,
-            "c": 5,
-            "r": 0.05,
-            "theta": 0,
-            "id": "donor"
-        },
-        {
-            "kind": "circle",
-            "x": 2,
-            "y": -0.1,
-            "c": 5,
-            "r": 0.05,
-            "theta": 0,
-            "id": "donor"
-        },
-        {
-            "kind": "circle",
-            "x": 3,
-            "y": -0.1,
-            "c": 5,
-            "r": 0.05,
-            "theta": 0,
-            "id": "donor"
-        },
-        {
-            "kind": "circle",
-            "x": 4,
-            "y": -0.1,
-            "c": 5,
-            "r": 0.05,
-            "theta": 0,
-            "id": "donor"
-        },
-        {
-            "kind": "circle",
+            "kind": "line",
             "x": 5,
-            "y": -0.1,
+            "y": -0.5,
             "c": 5,
-            "r": 0.05,
+            "l": 5,
             "theta": 0,
             "id": "donor"
         },
         {
-            "kind": "circle",
-            "x": 6,
-            "y": -0.1,
+            "kind": "line",
+            "x": 5,
+            "y": -1.5,
             "c": 5,
-            "r": 0.05,
+            "l": 3,
             "theta": 0,
             "id": "donor"
         },
         {
-            "kind": "circle",
+            "kind": "line",
             "x": 7,
-            "y": -0.1,
+            "y": -2,
             "c": 5,
-            "r": 0.05,
+            "l": 2,
             "theta": 0,
             "id": "donor"
         },
         {
-            "kind": "circle",
-            "x": 8,
-            "y": -0.1,
+            "kind": "line",
+            "x": 4,
+            "y": -4,
             "c": 5,
-            "r": 0.05,
+            "l": 2,
             "theta": 0,
             "id": "donor"
         },
         {
-            "kind": "circle",
-            "x": 9,
-            "y":-0.1,
+            "kind": "line",
+            "x": 4,
+            "y": -4.5,
             "c": 5,
-            "r": 0.05,
+            "l": 5,
             "theta": 0,
             "id": "donor"
         },
         {
-            "kind": "circle",
-            "x": 10,
-            "y": -0.1,
+            "kind": "line",
+            "x": 4,
+            "y": -3,
             "c": 5,
-            "r": 0.05,
-            "theta": 0,
+            "l": 5,
+            "theta": 355,
             "id": "donor"
         }
     ]

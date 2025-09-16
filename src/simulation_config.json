@@ -4,68 +4,23 @@
     "ca": 8.0,
     "gamma": 3.5,
     "dom_xmin": 0.0,
-    "dom_xmax": 10.0,
-    "dom_ymin": -8.0,
-    "dom_ymax": 0.0,
-    "dom_inc": 0.05,
+    "dom_xmax": 1800.0,
+    "dom_ymin": -10.0,
+    "dom_ymax": 10.0,
+    "dom_inc": 0.5,
     "num_cp": 100,
-    "num_terms": 7,
-    "orientation": "vertical",
+    "num_terms": 9,
+    "orientation": "horizontal",
     "plot_aspect":"not scaled",
     "elements": [
         
         {
             "kind": "line",
-            "x": 5,
-            "y": -0.5,
+            "x": 0,
+            "y": 0,
             "c": 5,
-            "l": 5,
-            "theta": 0,
-            "id": "donor"
-        },
-        {
-            "kind": "line",
-            "x": 5,
-            "y": -1.5,
-            "c": 5,
-            "l": 3,
-            "theta": 0,
-            "id": "donor"
-        },
-        {
-            "kind": "line",
-            "x": 7,
-            "y": -2,
-            "c": 5,
-            "l": 2,
-            "theta": 0,
-            "id": "donor"
-        },
-        {
-            "kind": "line",
-            "x": 4,
-            "y": -4,
-            "c": 5,
-            "l": 2,
-            "theta": 0,
-            "id": "donor"
-        },
-        {
-            "kind": "line",
-            "x": 4,
-            "y": -4.5,
-            "c": 5,
-            "l": 5,
-            "theta": 0,
-            "id": "donor"
-        },
-        {
-            "kind": "line",
-            "x": 4,
-            "y": -3,
-            "c": 5,
-            "l": 5,
-            "theta": 355,
+            "l": 9.8,
+            "theta": 90,
             "id": "donor"
         }
     ]

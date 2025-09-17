@@ -4,10 +4,10 @@
     "ca": 8.0,
     "gamma": 3.5,
     "dom_xmin": 0.0,
-    "dom_xmax": 1800.0,
+    "dom_xmax": 300.0,
     "dom_ymin": -10.0,
     "dom_ymax": 10.0,
-    "dom_inc": 0.5,
+    "dom_inc": 0.2,
     "num_cp": 100,
     "num_terms": 9,
     "orientation": "horizontal",
@@ -16,10 +16,10 @@
         
         {
             "kind": "line",
-            "x": 0,
+            "x": 5,
             "y": 0,
             "c": 5,
-            "l": 9.8,
+            "l": 1,
             "theta": 90,
             "id": "donor"
         }

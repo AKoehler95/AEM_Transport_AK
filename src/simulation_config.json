@@ -4,7 +4,7 @@
     "ca": 8.0,
     "gamma": 3,
     "dom_xmin": 0.0,
-    "dom_xmax": 600.0,
+    "dom_xmax": 300.0,
     "dom_ymin": -10.0,
     "dom_ymax": 10.0,
     "dom_inc": 0.5,
@@ -17,6 +17,15 @@
         {
             "kind": "line",
             "x": 0,
+            "y": 0,
+            "c": 5,
+            "l": 2,
+            "theta": 90,
+            "id": "donor"
+        },
+        {
+            "kind": "line",
+            "x": 5,
             "y": 0,
             "c": 5,
             "l": 2,

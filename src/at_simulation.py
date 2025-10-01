@@ -178,7 +178,7 @@ def create_zero_isoline(elem: ATElement) -> ATElement:
         kind=ATElementType.Line,
         x=elem.x,
         y=0.0,
-        c=-0, #elem.c,          # enforce zero concentration on the isoline segment
+        c=elem.c,          # enforce zero concentration on the isoline segment
         r=elem.r,       # same half-length/radius as the input element
         theta=0.0       # horizontal along the isoline y=0
     )

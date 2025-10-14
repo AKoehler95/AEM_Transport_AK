@@ -549,7 +549,7 @@ class ATSimulation:
             f.write(f"Number of control points: {self.config.num_cp}\n")
             f.write(f"Orientation: {self.config.orientation}\n")
             f.write(f"Domain: x[{self.config.dom_xmin}, {self.config.dom_xmax}], y[{self.config.dom_ymin}, {self.config.dom_ymax}]\n")
-
+            
             # source geometry
             f.write("\n=== ELEMENTS ===\n")
             for idx, elem in enumerate(self.config.elements):
@@ -641,6 +641,15 @@ class ATSimulation:
             linewidths=2,
             colors='k'
         )
+        
+        total_length = 0
+        for collection in Plume_max.collections:
+            for path in collection.get_paths():
+                v = path.vertices
+                x, y = v[:, 0], v[:, 1]
+                segment_lengths = np.sqrt(np.diff(x)**2 + np.diff(y)**2)
+                total_length += np.sum(segment_lengths)
+        print(f"Total interface length: {total_length:.4f}")
         # isolines = plt.contour(
         #     X, Y,
         #     self.result,

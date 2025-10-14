@@ -1,6 +1,5 @@
-# Written by Willi Kappler, willi.kappler@uni-tuebingen.de
-
-# Based on code from Anton Köhler
+# Written by Alvin Yadav (yadavalvin77@gmail.com) and Anton Köhler (anton.koehler@uni-tuebingen.de)
+# Based on code by Willi Kappler, willi.kappler@uni-tuebingen.de
 
 # Python std library
 import logging
@@ -20,15 +19,15 @@ CONFIG_PATH = "simulation_config.json"
 INPUT_FILE       = "input_values.txt"
 OUTPUT_FILE      = "output_values.txt"
 STATS_FILE       = "stats_values.txt"
-ORIENTATION      = "vertical"   # "horizontal" or "vertical"
-ELEM_KIND        = "Circle"       #Circle or Line
-SOURCE_THICKNESS_MODIFIER = 0.25   # set between 0.0 and 1.0 to determine what percentage of
-                                   # aquifer thickness is radius of source thickness
-ALPHA_START      = 0.0001
-STEP             = 0.0001
-TOLERANCE        = 10.0
-MAX_ALPHA        = 0.2
-MAX_STAGNATION   = 5
+ORIENTATION      = "vertical"       # "horizontal" or "vertical"
+ELEM_KIND        = "Circle"         # Circle or Line
+SOURCE_THICKNESS_MODIFIER = 0.25    # set between 0.0 and 1.0 to determine what percentage of
+                                    # aquifer thickness is radius of source thickness
+ALPHA_START      = 0.0001           # start value for dispersivity (low)
+STEP             = 0.0001           # increment for increasing dispersivity value
+TOLERANCE        = 10.0             # exit criterion 1, plume length within +/- Tolerance
+MAX_ALPHA        = 0.2              # exit criterion 2, maximum dispersivity value
+MAX_STAGNATION   = 5                # exit criterion 3, result independent of dispersivity value in given parameter space (stop after 5x same result)  
 
 result = None
 

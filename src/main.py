@@ -1,5 +1,5 @@
 # Written by Alvin Yadav (yadavalvin77@gmail.com) and Anton Köhler (anton.koehler@uni-tuebingen.de)
-# Based on code by Willi Kappler, willi.kappler@uni-tuebingen.de
+# Based on code by Willi Kappler (willi.kappler@uni-tuebingen.de)
 
 # Python std library
 import logging

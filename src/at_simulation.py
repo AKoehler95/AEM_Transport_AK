@@ -619,7 +619,13 @@ class ATSimulation:
         mpl.rcParams.update({"font.size": 22})
 
         X, Y = np.meshgrid(self.xaxis, self.yaxis)
-
+        
+        # dZ_dy, dZ_dx = np.gradient(self.result[2], Y, X)
+        
+        # plt.figure(figsize=(8, 6))
+        # plt.imshow(self.result[2], extent=[xmin, xmax, ymin, ymax], origin='lower', cmap='viridis', alpha=0.7)
+        # plt.quiver(X, Y, dZ_dx, dZ_dy, color='white', scale=30)
+        
         donor = plt.contourf(
             X, Y,
             self.result,
@@ -660,8 +666,8 @@ class ATSimulation:
 
         ax = plt.gca()
         ax.xaxis.set_major_locator(MaxNLocator(nbins=5))  # ~ticks for X
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
-
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=5))         
+        
         plt.xlabel("$x$ (m)")
         plt.ylabel("$z$ (m)" if self.config.orientation == "vertical" else "$y$ (m)")
 

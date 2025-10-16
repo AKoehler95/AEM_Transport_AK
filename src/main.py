@@ -21,9 +21,9 @@ OUTPUT_FILE      = "output_values.txt"
 STATS_FILE       = "stats_values.txt"
 ORIENTATION      = "vertical"       # "horizontal" or "vertical"
 ELEM_KIND        = "Circle"         # Circle or Line
-SOURCE_THICKNESS_MODIFIER = 0.25    # set between 0.0 and 1.0 to determine what percentage of
+SOURCE_THICKNESS_MODIFIER = 0.5     # set between 0.0 and 1.0 to determine what percentage of
                                     # aquifer thickness is radius of source thickness
-ALPHA_START      = 0.0001           # start value for dispersivity (low)
+ALPHA_START      = 0.0001           # start value for dispersivity (low) [m]
 STEP             = 0.0001           # increment for increasing dispersivity value
 TOLERANCE        = 10.0             # exit criterion 1, plume length within +/- Tolerance
 MAX_ALPHA        = 0.2              # exit criterion 2, maximum dispersivity value

@@ -178,7 +178,7 @@ def create_zero_isoline(elem: ATElement) -> ATElement:
         kind=ATElementType.Line,
         x=elem.x,
         y=0.0,
-        c=elem.c,          # enforce zero concentration on the isoline segment
+        c=-8.0, #elem.c,          # enforce zero concentration on the isoline segment
         r=elem.r,       # same half-length/radius as the input element
         theta=0.0       # horizontal along the isoline y=0
     )
@@ -206,10 +206,10 @@ class ATSimulation:
                 updated_elements.append(elem)
                 mirrored = create_mirrored_element(elem)
                 mirrored.id = f"image_{elem.id}"
-                zero_isoline = create_zero_isoline(elem)
-                zero_isoline.id = f"zero_{elem.id}"
+                # zero_isoline = create_zero_isoline(elem)
+                # zero_isoline.id = f"zero_{elem.id}"
                 updated_elements.append(mirrored)
-                updated_elements.append(zero_isoline)
+                # updated_elements.append(zero_isoline)
             self.config.elements = updated_elements
             self.config.dom_ymax = 0
 

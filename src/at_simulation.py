@@ -649,12 +649,13 @@ class ATSimulation:
         )
         
         total_length = 0
-        for collection in Plume_max.collections:
-            for path in collection.get_paths():
-                v = path.vertices
-                x, y = v[:, 0], v[:, 1]
-                segment_lengths = np.sqrt(np.diff(x)**2 + np.diff(y)**2)
-                total_length += np.sum(segment_lengths)
+        # for collection in Plume_max.collections:          ##deprecated in new matplotlib
+        #     for path in collection.get_paths              ##deprecated in new matplotlib
+        for path in Plume_max.get_paths():
+            v = path.vertices
+            x, y = v[:, 0], v[:, 1]
+            segment_lengths = np.sqrt(np.diff(x)**2 + np.diff(y)**2)
+            total_length += np.sum(segment_lengths)
         print(f"Total interface length: {total_length:.4f}")
         # isolines = plt.contour(
         #     X, Y,

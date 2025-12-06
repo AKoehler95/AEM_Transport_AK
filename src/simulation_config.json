@@ -1,0 +1,29 @@
+{
+    "alpha_l": 2.0,
+    "alpha_t": 0.2,
+    "ca": 8.0,
+    "gamma": 3.5,
+    "dom_xmin": 0.0,
+    "dom_xmax": 150.0,
+    "dom_ymin": -20.0,
+    "dom_ymax": 20.0,
+    "dom_inc": 1.0,
+    "num_cp": 100,
+    "num_terms": 7,
+    "orientation": "horizontal",
+    "plot_aspect":"scaled",
+    "elements": [
+        {
+             "kind": "ellipse",
+             "x": 10,
+             "y": 0,
+             "c": 5,
+             "a": 1.5,
+             "b": 0.5,
+             "theta": 60,
+             "id": "donor"
+        }
+
+    ]
+}
+

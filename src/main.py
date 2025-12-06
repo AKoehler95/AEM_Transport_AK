@@ -1,5 +1,5 @@
-# Written by Alvin Yadav (yadavalvin77@gmail.com) and Anton Köhler (anton.koehler@uni-tuebingen.de)
-# Based on code by Willi Kappler (willi.kappler@uni-tuebingen.de)
+# Written by Willi Kappler, willi.kappler@uni-tuebingen.de
+# Based on code from Anton Köhler
 
 # Python std library
 import logging
@@ -19,15 +19,14 @@ CONFIG_PATH = "simulation_config.json"
 INPUT_FILE       = "input_values.txt"
 OUTPUT_FILE      = "output_values.txt"
 STATS_FILE       = "stats_values.txt"
-ORIENTATION      = "vertical"       # "horizontal" or "vertical"
-ELEM_KIND        = "Circle"         # Circle or Line
-SOURCE_THICKNESS_MODIFIER = 0.5     # set between 0.0 and 1.0 to determine what percentage of
-                                    # aquifer thickness is radius of source thickness
-ALPHA_START      = 0.0001           # start value for dispersivity (low) [m]
-STEP             = 0.0001           # increment for increasing dispersivity value
-TOLERANCE        = 10.0             # exit criterion 1, plume length within +/- Tolerance
-MAX_ALPHA        = 0.2              # exit criterion 2, maximum dispersivity value
-MAX_STAGNATION   = 5                # exit criterion 3, result independent of dispersivity value in given parameter space (stop after 5x same result)  
+ORIENTATION      = "vertical"   # "horizontal" or "vertical"
+ELEM_KIND        = "Circle"       #Circle or Line
+SOURCE_THICKNESS_MODIFIER = 0.5   # set between 0.0 and 1.0 to determine what percentage of
+                                   # aquifer thickness is radius of source thickness
+
+# New: which parameter to estimate and optional bounds
+# Options: "alpha_t", "alpha_l", "r", "C0", "ca", "gamma"
+ESTIMATE_PARAM   = "r"
 
 result = None
 
@@ -48,22 +47,25 @@ def run_simulation():
     # Return or process sim.result_tuple as needed
     return sim.result_tuple
 
-def run_findalpha():
-    # Run the alpha-finder in batch mode with logging
+def run_findalpha(
+    input_file,
+    output_file,
+    stats_file,
+    orientation,
+    elem_kind,
+    source_thickness_modifier,
+    estimate_param,
+):
+    # Run the parameter-finder in batch mode with logging
     process_input_file_with_logging(
-        INPUT_FILE,
-        OUTPUT_FILE,
-        STATS_FILE,
-        ORIENTATION,
-        ELEM_KIND,
-        SOURCE_THICKNESS_MODIFIER,
-        ALPHA_START,
-        STEP,
-        TOLERANCE,
-        MAX_ALPHA,
-        MAX_STAGNATION
+        input_file=input_file,
+        output_file=output_file,
+        statsfile=stats_file,
+        orientation=orientation,
+        elem_kind=elem_kind,
+        source_thickness_modifier=source_thickness_modifier,
+        estimate_param=estimate_param,
     )
-
 
 def main():
     global result
@@ -73,7 +75,15 @@ def main():
         result = run_simulation()
         print("Simulation completed. Result tuple returned.")
     elif MODE == "findalpha":
-        run_findalpha()
+        run_findalpha(
+            input_file=INPUT_FILE,
+            output_file=OUTPUT_FILE,
+            stats_file=STATS_FILE,
+            orientation=ORIENTATION,
+            elem_kind=ELEM_KIND,
+            source_thickness_modifier=SOURCE_THICKNESS_MODIFIER,
+            estimate_param=ESTIMATE_PARAM,
+        )
         print(f"Inverse Dispersivity Finder completed. Results in '{OUTPUT_FILE}'. Element Statistics in '{STATS_FILE}'. Console output logged to 'findalpha_log.txt'.")
     else:
         raise ValueError(f"Unknown MODE '{MODE}'. Use 'simulate' or 'findalpha'.")

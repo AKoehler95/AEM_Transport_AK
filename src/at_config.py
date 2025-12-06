@@ -81,6 +81,23 @@ class ATConfiguration:
                     r=elem_data['l']/2.0,  #radius
                     theta=math.radians(theta_deg)  # default vertical
                 )
+            elif kind == "ellipse":
+                # Ellipse element expects semi-axes a (semi-major) and b (semi-minor), and optional theta in degrees.
+                theta_deg = elem_data.get("theta", 0)
+                a = elem_data.get("a", None)
+                b = elem_data.get("b", None)
+                if a is None or b is None:
+                    raise ValueError("Ellipse requires 'a' and 'b' (semi-axes) in the config.")
+
+                elem = ATElement(
+                    kind=ATElementType.Ellipse,
+                    x=float(elem_data['x']),
+                    y=float(elem_data['y']),
+                    c=float(elem_data['c']),
+                    r=float(a),  # map 'a' → r (semi-major)
+                    theta=math.radians(float(theta_deg)),  # degrees → radians
+                    b=float(b)  # semi-minor
+                )
             else:
                 raise ValueError(f"Unknown element kind: {elem_data['kind']}")
 

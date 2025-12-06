@@ -11,7 +11,7 @@ import numpy as np
 
 # Local imports:
 from mathieu_functions_OG import Mathieu
-
+#from mathieu_functions_pygsl import Mathieu
 
 class ATElementType(Enum):
     """
@@ -19,18 +19,21 @@ class ATElementType(Enum):
 
     - Circle: x, y and radius
     - Line: x1, y1 and x2, y2
+    - Ellipse: x, y and semi-axes (a=r, b)
     """
     Circle = 0
     Line = 1
+    Ellipse = 2
 
 
 class ATElement:
-    def __init__(self, kind: ATElementType, x: float, y: float, c: float, r=1.0, theta: float = math.pi/2):
+    def __init__(self, kind: ATElementType, x: float, y: float, c: float, r=1.0, theta: float = math.pi/2, b: float | None = None):
         self.kind = kind
         self.x: float = x
         self.y: float = y
         self.c: float = c
         self.r: float = r
+        self.b: float | None = b
         self.theta: float = theta
         self.theta_eff: float | None = None # effective angle after anisotropy stretch
         self.d: float = 0.0
@@ -40,7 +43,6 @@ class ATElement:
         self.label: str = ""
         self.id: str = ""
 
-    # ---- CHANGED: correct d, q per element, then init OG Mathieu ----
     def calc_d_q(self, alpha_t: float, alpha_l: float, beta: float):
         a = float(self.r)
         s = math.sqrt(alpha_l / alpha_t)
@@ -55,10 +57,39 @@ class ATElement:
                 self.d = math.sqrt((s * a) ** 2 - a ** 2)
             self.theta_eff = None  # irrelevant for circles
 
+        elif self.kind == ATElementType.Ellipse:
+            # Ellipse: semi-axes a=r, b=self.b, rotated by theta.
+            # Apply global stretch S=diag(1, s) with s = sqrt(alpha_l/alpha_t).
+            a = float(self.r)
+            b = float(self.b if self.b is not None else self.r)
+            θ = float(self.theta)
+            cθ, sθ = math.cos(θ), math.sin(θ)
+            # Rotation and stretch
+            R = np.array([[cθ, -sθ],
+                          [sθ,  cθ]], dtype=float)
+            S = np.array([[1.0, 0.0],
+                          [0.0, s      ]], dtype=float)
+            S_inv = np.array([[1.0, 0.0],
+                              [0.0, 1.0/s]], dtype=float)
+            # Quadratic form of ellipse in local coords: x^2/a^2 + y^2/b^2 = 1
+            D = np.array([[1.0/(a*a), 0.0],
+                          [0.0,       1.0/(b*b)]], dtype=float)
+            # In stretched coords, ellipse equation becomes p_s^T M p_s = 1 with M = S^{-T} R D R^T S^{-1}
+            M = S_inv.T @ R @ D @ R.T @ S_inv
+            w, V = np.linalg.eigh(M)
+            w = np.maximum(w, 1e-15)
+            axes = 1.0 / np.sqrt(w)
+            order = np.argsort(axes)[::-1]  # a_s >= b_s
+            a_s, b_s = axes[order[0]], axes[order[1]]
+            v_major = V[:, order[0]]
+            # Effective major-axis angle in stretched frame and focal distance
+            self.theta_eff = math.atan2(v_major[1], v_major[0])
+            self.d = max(math.sqrt(max(a_s*a_s - b_s*b_s, 0.0)), 1e-15)
+
         elif self.kind == ATElementType.Line:
             # line deforms under global stretch: use stretched angle & half-length
             cθ, sθ = math.cos(self.theta), math.sin(self.theta)
-            self.theta_eff = math.atan2(s * sθ, cθ)                 # θ_s
+            self.theta_eff = math.atan2(s * sθ, cθ)  # θ_s
             self.d = max(a * math.sqrt(cθ * cθ + (s * sθ) ** 2), eps)  # a_s
 
         else:
@@ -76,6 +107,18 @@ class ATElement:
                 for p in phi
             ]
 
+        elif self.kind == ATElementType.Ellipse:
+            a = float(self.r)
+            b = float(self.b if self.b is not None else self.r)
+            θ = float(self.theta)
+            t_vals = np.linspace(0, 2 * math.pi, num_cp, endpoint=False)
+            cθ, sθ = math.cos(θ), math.sin(θ)
+            self.outline = [
+                (self.x + a * math.cos(t) * cθ - b * math.sin(t) * sθ,
+                 self.y + a * math.cos(t) * sθ + b * math.sin(t) * cθ)
+                for t in t_vals
+            ]
+
         elif self.kind == ATElementType.Line:
             half_len = self.r
             t_vals = np.linspace(-half_len, half_len, num_cp)
@@ -87,7 +130,6 @@ class ATElement:
         else:
             raise ValueError(f"Unknown element kind: {self.kind}")
 
-    # ---- CHANGED: rotation-aware complex elliptical map (Bakker) ----
     def uv(self, x: float, y: float, alpha_l: float, alpha_t: float) -> tuple[float, float]:
         """
         Map local offsets (dx, dy) -> (eta, psi), respecting anisotropy and element type.
@@ -110,6 +152,15 @@ class ATElement:
             X = cθ * x_s + sθ * y_s
             Y = -sθ * x_s + cθ * y_s
             z = complex(X, Y) / (self.d if self.d != 0.0 else 1e-15)  # (X + i*Y)/d
+
+        elif self.kind == ATElementType.Ellipse:
+            # Stretch then rotate into principal axes (theta_eff), then confocal map z=(X+iY)/d
+            θ = self.theta_eff if self.theta_eff is not None else self.theta
+            cθ, sθ = math.cos(θ), math.sin(θ)
+            X =  cθ * x_s + sθ * y_s
+            Y = -sθ * x_s + cθ * y_s
+            z = complex(X, Y) / (self.d if self.d != 0.0 else 1e-15)
+
         else:
             # circle: no rotation
             X, Y = x_s, y_s
@@ -123,4 +174,3 @@ class ATElement:
         eta = w.real
         psi = w.imag % (2.0 * math.pi)
         return (eta, psi)
-

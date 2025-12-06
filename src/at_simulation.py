@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import matplotlib.pyplot as plt_temp
 import matplotlib as mpl
 from matplotlib.ticker import MaxNLocator
+from matplotlib.lines import Line2D
 from multiprocessing import Pool, cpu_count
 
 # Local imports:
@@ -35,7 +36,7 @@ _shared_gamma = None
 def _init_pool(elements, coeff, num_terms, alpha_l, alpha_t, beta, ca, gamma):
     """
     Initializes shared variables for worker processes in the multiprocessing pool.
-    
+
     Parameters
     ----------
     elements : list
@@ -71,12 +72,12 @@ def _init_pool(elements, coeff, num_terms, alpha_l, alpha_t, beta, ca, gamma):
 def _compute_point_shared(args):
     """
      Computes concentration at a point using shared variables.
-    
+
      Parameters
      ----------
      args : tuple
          (x, y) coordinates.
-    
+
      Returns
      -------
      float
@@ -137,6 +138,16 @@ def _compute_point(args):
             if dx*dx + dy*dy <= elem.r**2:
                 conc = elem.c
                 break
+        if elem.kind == ATElementType.Ellipse:
+            # Point-in-rotated-ellipse: ((x')/a)^2 + ((y')/b)^2 <= 1
+            a = float(elem.r)
+            b = float(elem.b if elem.b is not None else elem.r)
+            cθ, sθ = math.cos(elem.theta), math.sin(elem.theta)
+            xp =  cθ * dx + sθ * dy
+            yp = -sθ * dx + cθ * dy
+            if (xp*xp) / (a*a) + (yp*yp) / (b*b) <= 1.0:
+                conc = elem.c
+                break
 
     return conc
 
@@ -144,25 +155,45 @@ def _compute_point(args):
 def create_mirrored_element(elem):
     """
     Creates a mirrored image of an ATElement across the x-axis.
-    
+
     Parameters
     ----------
     elem : ATElement
         Original element to be mirrored.
-    
+
     Returns
     -------
     ATElement
         Mirrored element with flipped y and concentration.
     """
-    return ATElement(
-        kind=elem.kind,
-        x=elem.x,
-        y=-elem.y,
-        c=-elem.c,
-        r=elem.r,
-        theta=elem.theta if elem.kind == ATElementType.Line else math.pi / 2  # ensure theta is preserved
-    )
+    if elem.kind == ATElementType.Line:
+        return ATElement(
+            kind=elem.kind,
+            x=elem.x,
+            y=-elem.y,
+            c=-elem.c,
+            r=elem.r,
+            theta=-elem.theta
+        )
+    elif elem.kind == ATElementType.Ellipse:
+        return ATElement(
+            kind=elem.kind,
+            x=elem.x,
+            y=-elem.y,
+            c=-elem.c,
+            r=elem.r,
+            theta=-elem.theta,
+            b=elem.b
+        )
+    else:  # Circle
+        return ATElement(
+            kind=elem.kind,
+            x=elem.x,
+            y=-elem.y,
+            c=-elem.c,
+            r=elem.r,
+            theta=math.pi / 2
+        )
 
 def create_zero_isoline(elem: ATElement) -> ATElement:
     """
@@ -178,7 +209,7 @@ def create_zero_isoline(elem: ATElement) -> ATElement:
         kind=ATElementType.Line,
         x=elem.x,
         y=0.0,
-        c=-8.0, #elem.c,          # enforce zero concentration on the isoline segment
+        c=0.0,          # enforce zero concentration on the isoline segment
         r=elem.r,       # same half-length/radius as the input element
         theta=0.0       # horizontal along the isoline y=0
     )
@@ -193,6 +224,7 @@ class ATSimulation:
         self.yaxis: np.ndarray = np.arange(0, 10, 1)
         self.result: np.ndarray = np.zeros((10, 10))
         self.L_max = None
+        self.interface_length = None
 
     def run(self):
         if len(self.config.elements) < 1:
@@ -201,15 +233,15 @@ class ATSimulation:
         if self.config.orientation == "vertical":
             updated_elements = []
             for elem in self.config.elements:
-                if elem.y > -(elem.r*np.sin(elem.theta)+0.001):
+                if elem.y > -(elem.r*np.sin(elem.theta)+0.1):
                     raise ValueError(f"Element '{elem.id}' must have y < -(r+0.1) for vertical orientation.")
                 updated_elements.append(elem)
                 mirrored = create_mirrored_element(elem)
                 mirrored.id = f"image_{elem.id}"
-                # zero_isoline = create_zero_isoline(elem)
-                # zero_isoline.id = f"zero_{elem.id}"
+                zero_isoline = create_zero_isoline(elem)
+                zero_isoline.id = f"zero_{elem.id}"
                 updated_elements.append(mirrored)
-                # updated_elements.append(zero_isoline)
+                updated_elements.append(zero_isoline)
             self.config.elements = updated_elements
             self.config.dom_ymax = 0
 
@@ -255,6 +287,7 @@ class ATSimulation:
 
         self.print_statistics(cpu_time)
         self.plot_result()
+        #self.plot_quiver()
 
     def solve_system(self, alpha_l: float, alpha_t: float, beta: float,
             gamma: float, ca: float, n: int, M: int):
@@ -374,10 +407,10 @@ class ATSimulation:
             self.config.ca,
             self.config.gamma
         )
-    
+
         with Pool(processes=cpu_count(), initializer=_init_pool, initargs=pool_args) as pool:
             flat = pool.map(_compute_point_shared, coords)
-    
+
         self.result = np.array(flat).reshape(xs.shape)
         self.result_tuple = (self.xaxis, self.yaxis, self.result)
 
@@ -411,22 +444,51 @@ class ATSimulation:
         return max_index + 1
 
     def calculate_lmax(self):
+        """
+        Compute L_max (furthest x-intersection of the 0-contour) and the interface length
+        (total polyline length of the chosen 0-contour) in meters.
+        """
         fig_temp = plt_temp.figure()
+        # Contour in index space; vertices are in pixel units, scale later by dom_inc
         contour_temp = plt_temp.contour(self.result, levels=[0])
 
         paths = contour_temp.get_paths()
-        if paths and len(paths[0].vertices) > 0:
-            Lmax = paths[0]
-            self.L_max = int(np.max(Lmax.vertices[:, 0]) * self.config.dom_inc)
-        else:
-            self.L_max = None
+        chosen = None
+        self.interface_length = None
+        self.L_max = None
+
+        if paths:
+            # Choose the path whose max-x (in index space) is largest → defines L_max
+            max_x_overall = -np.inf
+            for p in paths:
+                v = p.vertices
+                if v is None or len(v) == 0:
+                    continue
+                max_x_path = np.max(v[:, 0])
+                if max_x_path > max_x_overall:
+                    max_x_overall = max_x_path
+                    chosen = v
+
+            if chosen is not None and len(chosen) > 1:
+                # L_max from furthest x (index units → meters)
+                self.L_max = int(max_x_overall * self.config.dom_inc)
+
+                # Interface length: sum of segment lengths along the chosen contour (index units → meters)
+                diffs = np.diff(chosen, axis=0)
+                seg_len_idx = np.hypot(diffs[:, 0], diffs[:, 1])
+                self.interface_length = float(np.sum(seg_len_idx) * self.config.dom_inc)
 
         plt_temp.close(fig_temp)
 
         if self.L_max is not None:
             print('Lmax =', self.L_max)
+            if self.interface_length is not None:
+                print(f'Interface length = {self.interface_length:.3f} m')
+            else:
+                print('Interface length: -')
         else:
             print("L_max: -")
+            print("Interface length: -")
 
     def check_domain_adequacy(self):
         if self.L_max is None:
@@ -501,6 +563,15 @@ class ATSimulation:
                 x_test = elem.x + (elem.r + 1e-9) * np.cos(phi)
                 y_test = elem.y + (elem.r + 1e-9) * np.sin(phi)
 
+            elif elem.kind == ATElementType.Ellipse:
+                t = np.linspace(0, 2 * pi, 360, endpoint=False)
+                a = float(elem.r)
+                b = float(elem.b if elem.b is not None else elem.r)
+                cθ, sθ = math.cos(elem.theta), math.sin(elem.theta)
+                x_test = elem.x + a * np.cos(t) * cθ - b * np.sin(t) * sθ
+                y_test = elem.y + a * np.cos(t) * sθ + b * np.sin(t) * cθ
+                phi = t  # reuse t as angular parameter for plotting
+
             elif elem.kind == ATElementType.Line:
                 half_len:float = elem.r
                 s = np.linspace(-half_len + 1e-9, half_len - 1e-9, 360)
@@ -549,12 +620,14 @@ class ATSimulation:
             f.write(f"Number of control points: {self.config.num_cp}\n")
             f.write(f"Orientation: {self.config.orientation}\n")
             f.write(f"Domain: x[{self.config.dom_xmin}, {self.config.dom_xmax}], y[{self.config.dom_ymin}, {self.config.dom_ymax}]\n")
-            
+
             # source geometry
             f.write("\n=== ELEMENTS ===\n")
             for idx, elem in enumerate(self.config.elements):
                 if (elem.kind == ATElementType.Circle):
                     f.write(f"Element {idx + 1}:kind={elem.kind}, x={elem.x}, y={elem.y}, r={elem.r}, c={elem.c}, id={elem.id}\n")
+                elif (elem.kind == ATElementType.Ellipse):
+                    f.write(f"Element {idx + 1}:kind={elem.kind}, x={elem.x}, y={elem.y}, a={elem.r}, b={elem.b}, theta={elem.theta}, c={elem.c}, id={elem.id}\n")
                 else:
                     f.write(f"Element {idx + 1}:kind={elem.kind}, x={elem.x}, y={elem.y}, r={elem.r}, theta={elem.theta}, c={elem.c}, id={elem.id}\n")
 
@@ -563,6 +636,8 @@ class ATSimulation:
 
             if self.L_max is not None:
                 f.write(f"\nL_max: {self.L_max}\n")
+            if getattr(self, "interface_length", None) is not None:
+                f.write(f"InterfaceLength: {self.interface_length:.6f} m\n")
 
             # statistics
             f.write("\n=== ELEMENT BOUNDARY STATISTICS ===\n")
@@ -619,13 +694,7 @@ class ATSimulation:
         mpl.rcParams.update({"font.size": 22})
 
         X, Y = np.meshgrid(self.xaxis, self.yaxis)
-        
-        # dZ_dy, dZ_dx = np.gradient(self.result[2], Y, X)
-        
-        # plt.figure(figsize=(8, 6))
-        # plt.imshow(self.result[2], extent=[xmin, xmax, ymin, ymax], origin='lower', cmap='viridis', alpha=0.7)
-        # plt.quiver(X, Y, dZ_dx, dZ_dy, color='white', scale=30)
-        
+
         donor = plt.contourf(
             X, Y,
             self.result,
@@ -647,28 +716,20 @@ class ATSimulation:
             linewidths=2,
             colors='k'
         )
-        
+
+        #L_max using Matplotlib (non-deprecated)
         total_length = 0
-        # for collection in Plume_max.collections:          ##deprecated in new matplotlib
-        #     for path in collection.get_paths              ##deprecated in new matplotlib
         for path in Plume_max.get_paths():
             v = path.vertices
             x, y = v[:, 0], v[:, 1]
-            segment_lengths = np.sqrt(np.diff(x)**2 + np.diff(y)**2)
+            segment_lengths = np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2)
             total_length += np.sum(segment_lengths)
         print(f"Total interface length: {total_length:.4f}")
-        # isolines = plt.contour(
-        #     X, Y,
-        #     self.result,
-        #     levels=np.linspace(-50,50,100),
-        #     linewidth=0.5,
-        #     extend='max'
-        # )
 
         ax = plt.gca()
-        ax.xaxis.set_major_locator(MaxNLocator(nbins=5))  # ~ticks for X
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=5))         
-        
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=7))  # ~ticks for X
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+
         plt.xlabel("$x$ (m)")
         plt.ylabel("$z$ (m)" if self.config.orientation == "vertical" else "$y$ (m)")
 
@@ -711,3 +772,202 @@ class ATSimulation:
         )
         plt.savefig(plot_filename)
         print(f"Plot saved to: {plot_filename}")
+
+
+    def plot_quiver(self):
+        """
+        Show donor and acceptor flux-like fields overlaid on the
+        donor/acceptor concentration background.
+
+        Interpretation:
+          - self.result is the net concentration field:
+              C > 0 → donor-dominated region
+              C < 0 → acceptor-dominated region
+          - We construct two proxies:
+              C_D(x, y) = max(C, 0)      (donor)
+              C_A(x, y) = max(-C, 0)     (acceptor "deficit" / magnitude below zero)
+          - From these we compute flux-like fields:
+              J_D \propto -\nablaC_D  (donor flux)
+              J_A \propto -\nablaC_A  (acceptor/oxygen flux)
+
+        Visual encoding:
+          - Background: donor (red) and acceptor (blue) concentration contours
+                        as in plot_result (semi-transparent).
+          - Red quiver:    donor flux ~ -\nabla C_D, continuous red gradient by |\nabla C_D|.
+          - Blue quiver:   acceptor flux ~ -\nabla C_A, continuous blue gradient by |\nabla C_A|.
+          - Arrow length \propto |\nabla C| for each field separately
+
+        This highlights how donor moves down its gradient and how acceptor
+        (oxygen) tends to move towards the reaction zone from the surrounding aquifer.
+        """
+        plt.figure(figsize=(16, 9), dpi=300)
+        mpl.rcParams.update({"font.size": 22})
+
+        # --- Background: donor/acceptor contours (same as plot_result, but with alpha) ---
+        max_val: float = np.max(self.result)
+        min_val: float = np.min(self.result)
+        abs_min: float = abs(min_val)
+
+        donor_levels = np.linspace(0, max_val, 11) if max_val > 0 else [0.0]
+        acceptor_levels = np.linspace(-abs_min, 0, 9) if abs_min > 0 else [0.0]
+
+        X, Y = np.meshgrid(self.xaxis, self.yaxis)
+
+        if max_val > 0:
+            plt.contourf(
+                X, Y,
+                self.result,
+                levels=donor_levels,
+                cmap="Reds",
+                extend="max",
+                alpha=0.5,
+            )
+
+        if abs_min > 0:
+            plt.contourf(
+                X, Y,
+                self.result,
+                levels=acceptor_levels,
+                cmap="Blues_r",
+                extend="min",
+                alpha=0.5,
+            )
+
+        # 0-contour (interface)
+        plt.contour(
+            X, Y,
+            self.result,
+            levels=[0],
+            linewidths=2,
+            colors="k",
+        )
+
+        # --- Donor and acceptor proxies ---
+        Cnet = self.result
+        C_donor = np.where(Cnet > 0.0, Cnet, 0.0)
+        C_acceptor = np.where(Cnet < 0.0, -Cnet, 0.0)  # magnitude below zero
+
+        # Gradients for donor and acceptor; -∇C points "downhill"
+        gy_d, gx_d = np.gradient(C_donor, self.config.dom_inc, self.config.dom_inc)
+        gy_a, gx_a = np.gradient(C_acceptor, self.config.dom_inc, self.config.dom_inc)
+        U_d, V_d = -gx_d, -gy_d
+        U_a, V_a = -gx_a, -gy_a
+
+        # Downsample to keep quiver readable (spacing ~1.5 m)
+        step = max(1, int(round(1.5 / max(self.config.dom_inc, 1e-9))))
+        Xq = X[::step, ::step]
+        Yq = Y[::step, ::step]
+        C_dq = C_donor[::step, ::step]
+        C_aq = C_acceptor[::step, ::step]
+        U_dq = U_d[::step, ::step]
+        V_dq = V_d[::step, ::step]
+        U_aq = U_a[::step, ::step]
+        V_aq = V_a[::step, ::step]
+
+        # Masks: only draw arrows where there is a meaningful donor/acceptor presence
+        donor_eps = 1e-6 * max(float(np.nanmax(C_donor)), 1.0)
+        acceptor_eps = 1e-6 * max(float(np.nanmax(C_acceptor)), 1.0)
+        m_d = C_dq > donor_eps
+        m_a = C_aq > acceptor_eps
+
+        # Zero out vectors outside masks
+        U_dq = np.where(m_d, U_dq, 0.0)
+        V_dq = np.where(m_d, V_dq, 0.0)
+        U_aq = np.where(m_a, U_aq, 0.0)
+        V_aq = np.where(m_a, V_aq, 0.0)
+
+        tiny = 1e-12
+
+        # --- Donor flux scaling and colouring ---
+        mag_d = np.hypot(U_dq, V_dq)
+        mag_d = np.where(mag_d < tiny, 0.0, mag_d)
+        max_mag_d = float(np.nanmax(mag_d)) if np.any(mag_d > 0.0) else 0.0
+        if max_mag_d > 0.0:
+            max_arrow_len_d = 3.0  # meters
+            sf_d = max_arrow_len_d / max_mag_d
+            U_dq *= sf_d
+            V_dq *= sf_d
+        else:
+            U_dq[:] = 0.0
+            V_dq[:] = 0.0
+
+        # --- Acceptor flux scaling and colouring ---
+        mag_a = np.hypot(U_aq, V_aq)
+        mag_a = np.where(mag_a < tiny, 0.0, mag_a)
+        max_mag_a = float(np.nanmax(mag_a)) if np.any(mag_a > 0.0) else 0.0
+        if max_mag_a > 0.0:
+            max_arrow_len_a = 3.0  # meters
+            sf_a = max_arrow_len_a / max_mag_a
+            U_aq *= sf_a
+            V_aq *= sf_a
+        else:
+            U_aq[:] = 0.0
+            V_aq[:] = 0.0
+
+        # Common quiver style
+        qkws = dict(
+            pivot="tail",
+            scale_units="xy",
+            scale=1,
+            width=0.0015,
+            headwidth=2.5,
+            headlength=4,
+            minlength=0,
+        )
+
+        # Donor flux (red gradient)
+        if np.any(m_d):
+            norm_d = mpl.colors.Normalize(vmin=0.0, vmax=max_mag_d if max_mag_d > 0.0 else 1.0)
+            plt.quiver(
+                Xq[m_d], Yq[m_d],
+                U_dq[m_d], V_dq[m_d],
+                mag_d[m_d],
+                cmap="Reds",
+                norm=norm_d,
+                alpha=0.9,
+                **qkws,
+            )
+
+        # Acceptor flux (blue gradient)
+        if np.any(m_a):
+            norm_a = mpl.colors.Normalize(vmin=0.0, vmax=max_mag_a if max_mag_a > 0.0 else 1.0)
+            plt.quiver(
+                Xq[m_a], Yq[m_a],
+                U_aq[m_a], V_aq[m_a],
+                mag_a[m_a],
+                cmap="Blues",
+                norm=norm_a,
+                alpha=0.9,
+                **qkws,
+            )
+
+        # Axes / labels
+        ax = plt.gca()
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=7))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+        plt.xlabel("$x$ (m)")
+        plt.ylabel("$z$ (m)" if self.config.orientation == "vertical" else "$y$ (m)")
+
+        # Legend (colour semantics only; magnitudes are relative per field)
+        legend_handles = [
+            Line2D([0], [0], color="red",  lw=3, label="Donor flux ~ -∇C_D"),
+            Line2D([0], [0], color="blue", lw=3, label="Acceptor flux ~ -∇C_A"),
+        ]
+        plt.legend(handles=legend_handles, loc="best")
+
+        if self.config.plot_aspect == "scaled":
+            plt.axis("scaled")
+        else:
+            plt.axis("auto")
+
+        plt.tight_layout()
+
+        results_dir: str = os.path.join("Results")
+        os.makedirs(results_dir, exist_ok=True)
+        filename_suffix: str = self.generate_filename_suffix()
+        plot_filename: str = os.path.join(
+            results_dir,
+            f"run_{self.run_index:04d}_quiver_{filename_suffix}.pdf"
+        )
+        plt.savefig(plot_filename)
+        print(f"Quiver plot saved to: {plot_filename}")

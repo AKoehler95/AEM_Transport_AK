@@ -23,7 +23,7 @@ PARAM_SEARCH_DEFAULTS = {
     # longitudinal dispersivity alpha_l [m]
     "alpha_l": {
         "lower": 0.5,
-        "upper": 30.5,
+        "upper": 10.5,
         "initial_step_factor": 1.0 / 200.0,
         "step_growth": 3.0,
         "max_step_factor": 0.2,
@@ -41,7 +41,7 @@ PARAM_SEARCH_DEFAULTS = {
     # Source conc C0 [mg/L]
     "C0": {
         "factor_lower": 0.5,
-        "factor_upper": 2.0,
+        "factor_upper": 150.0,
         "min_abs": 0.01,
         "max_abs": 120.0,
         "initial_step_factor": 1.0 / 500.0,
@@ -52,7 +52,7 @@ PARAM_SEARCH_DEFAULTS = {
     # Background conc Ca [mg/L]
     "ca": {
         "factor_lower": 0.5,
-        "factor_upper": 2.0,
+        "factor_upper": 30.0,
         "min_abs": 0.1,
         "max_abs": 20.0,
         "initial_step_factor": 1.0 / 500.0,
@@ -62,8 +62,8 @@ PARAM_SEARCH_DEFAULTS = {
     },
     # Gamma [1/y]
     "gamma": {
-        "factor_lower": 0.5,
-        "factor_upper": 2.0,
+        "factor_lower": 3.0,
+        "factor_upper": 10.0,
         "min_abs": 0.0,
         "max_abs": 1.0,
         "initial_step_factor": 1.0 / 500.0,

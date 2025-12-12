@@ -1,0 +1,448 @@
+
+********************************************************************************
+NEW RUN STARTED AT: 2025-12-12 13:10:59
+********************************************************************************
+FINDALPHA MODE PARAMETERS:
+================================================================================
+INPUT_FILE: C:\Users\Anton\Desktop\HYMCAT\Software_Development\Anton\AEM_Transport_AK\src\findalpha_files\input_values.txt, OUTPUT_FILE: C:\Users\Anton\Desktop\HYMCAT\Software_Development\Anton\AEM_Transport_AK\src\findalpha_files\output_values.txt, STATSFILE: C:\Users\Anton\Desktop\HYMCAT\Software_Development\Anton\AEM_Transport_AK\src\findalpha_files\stats_values.txt
+, ORIENTATION: vertical, ELEM_KIND: Circle, SOURCE_THICKNESS_MODIFIER: 1.0, 
+ TOLERANCE: None, MAX_STAGNATION: 5
+ ESTIMATE_PARAM: alpha_t, LOWER_BOUND: None, UPPER_BOUND: None
+
+********************************************************************************
+NEW RUN STARTED AT: 2025-12-12 13:11:50
+********************************************************************************
+FINDALPHA MODE PARAMETERS:
+================================================================================
+INPUT_FILE: C:\Users\Anton\Desktop\HYMCAT\Software_Development\Anton\AEM_Transport_AK\src\findalpha_files\input_values.txt, OUTPUT_FILE: C:\Users\Anton\Desktop\HYMCAT\Software_Development\Anton\AEM_Transport_AK\src\findalpha_files\output_values.txt, STATSFILE: C:\Users\Anton\Desktop\HYMCAT\Software_Development\Anton\AEM_Transport_AK\src\findalpha_files\stats_values.txt
+, ORIENTATION: vertical, ELEM_KIND: Circle, SOURCE_THICKNESS_MODIFIER: 1.0, 
+ TOLERANCE: None, MAX_STAGNATION: 5
+ ESTIMATE_PARAM: alpha_t, LOWER_BOUND: None, UPPER_BOUND: None
+
+********************************************************************************
+NEW RUN STARTED AT: 2025-12-12 13:12:13
+********************************************************************************
+FINDALPHA MODE PARAMETERS:
+================================================================================
+INPUT_FILE: C:\Users\Anton\Desktop\HYMCAT\Software_Development\Anton\AEM_Transport_AK\src\findalpha_files\input_values.txt, OUTPUT_FILE: C:\Users\Anton\Desktop\HYMCAT\Software_Development\Anton\AEM_Transport_AK\src\findalpha_files\output_values.txt, STATSFILE: C:\Users\Anton\Desktop\HYMCAT\Software_Development\Anton\AEM_Transport_AK\src\findalpha_files\stats_values.txt
+, ORIENTATION: vertical, ELEM_KIND: Circle, SOURCE_THICKNESS_MODIFIER: 1.0, 
+ TOLERANCE: None, MAX_STAGNATION: 5
+ ESTIMATE_PARAM: alpha_t, LOWER_BOUND: None, UPPER_BOUND: None
+================================================================================
+Input Line 1: 4.572	3.55	6.9	3.14	274.32
+================================================================================
+Processing line 1: target_Lmax = 274.32
+Lmax = 302
+Interface length = 302.019 m
+Lmax = 191
+Interface length = 191.143 m
+Lmax = 265
+Interface length = 265.100 m
+[bisect] alpha_t=0.0703, L_mid=265, diff=-9.32
+================================================================================
+Input Line 2: 1.524	28.00	7.1	3.14	228.6
+================================================================================
+Processing line 2: target_Lmax = 228.6
+Lmax = 252
+Interface length = 504.120 m
+Lmax = 204
+Interface length = 408.598 m
+Lmax = 252
+Interface length = 504.072 m
+[bisect] alpha_t=0.05248, L_mid=252, diff=23.4
+Lmax = 252
+Interface length = 504.131 m
+[bisect] alpha_t=0.07624, L_mid=252, diff=23.4
+Lmax = 226
+Interface length = 453.291 m
+[bisect] alpha_t=0.08812, L_mid=226, diff=-2.6
+================================================================================
+Input Line 3: 3.048	0.45	0.8	3.14	914.4
+================================================================================
+Processing line 3: target_Lmax = 914.4
+Lmax = 526
+Interface length = 526.326 m
+Lmax = 116
+Interface length = 116.347 m
+Lmax = 487
+Interface length = 487.460 m
+Lmax = 454
+Interface length = 454.219 m
+Lmax = 425
+Interface length = 425.318 m
+Lmax = 400
+Interface length = 400.163 m
+Lmax = 377
+Interface length = 377.998 m
+Lmax = 358
+Interface length = 358.117 m
+Lmax = 340
+Interface length = 340.243 m
+Lmax = 324
+Interface length = 324.255 m
+Lmax = 309
+Interface length = 309.922 m
+Lmax = 296
+Interface length = 296.606 m
+Lmax = 284
+Interface length = 284.569 m
+Lmax = 273
+Interface length = 273.524 m
+Lmax = 263
+Interface length = 263.367 m
+Lmax = 254
+Interface length = 254.144 m
+Lmax = 245
+Interface length = 245.307 m
+Lmax = 237
+Interface length = 237.256 m
+Lmax = 229
+Interface length = 229.739 m
+Lmax = 222
+Interface length = 222.682 m
+Lmax = 216
+Interface length = 216.185 m
+Lmax = 210
+Interface length = 210.117 m
+Lmax = 204
+Interface length = 204.192 m
+Lmax = 198
+Interface length = 198.609 m
+Lmax = 193
+Interface length = 193.427 m
+Lmax = 188
+Interface length = 188.554 m
+Lmax = 184
+Interface length = 184.144 m
+Lmax = 179
+Interface length = 179.551 m
+Lmax = 175
+Interface length = 175.396 m
+Lmax = 171
+Interface length = 171.435 m
+Lmax = 167
+Interface length = 167.718 m
+Lmax = 164
+Interface length = 164.212 m
+Lmax = 160
+Interface length = 160.700 m
+Lmax = 157
+Interface length = 157.399 m
+Lmax = 154
+Interface length = 154.312 m
+Lmax = 151
+Interface length = 151.313 m
+Lmax = 148
+Interface length = 148.405 m
+Lmax = 145
+Interface length = 145.676 m
+Lmax = 143
+Interface length = 143.189 m
+Lmax = 140
+Interface length = 140.468 m
+Lmax = 138
+Interface length = 138.207 m
+Lmax = 135
+Interface length = 135.721 m
+Lmax = 133
+Interface length = 133.425 m
+Lmax = 131
+Interface length = 131.306 m
+Lmax = 129
+Interface length = 129.255 m
+Lmax = 127
+Interface length = 127.244 m
+Lmax = 125
+Interface length = 125.272 m
+Lmax = 123
+Interface length = 123.323 m
+Lmax = 121
+Interface length = 121.441 m
+Lmax = 119
+Interface length = 119.693 m
+Lmax = 118
+Interface length = 118.186 m
+Lmax = 116
+Interface length = 116.347 m
+  [ERROR] Target L_max not bracketed in [0.001, 0.1] for parameter alpha_t. L(lb)=526, L(ub)=116, target=914.4.
+================================================================================
+Input Line 4: 3.048	43.28	12.6	3.14	213.36
+================================================================================
+Processing line 4: target_Lmax = 213.36
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.010 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.001 m
+Lmax = 235
+Interface length = 235.002 m
+Lmax = 235
+Interface length = 235.002 m
+Lmax = 235
+Interface length = 235.002 m
+Lmax = 235
+Interface length = 235.002 m
+Lmax = 235
+Interface length = 235.002 m
+Lmax = 235
+Interface length = 235.002 m
+Lmax = 235
+Interface length = 235.003 m
+Lmax = 235
+Interface length = 235.003 m
+Lmax = 235
+Interface length = 235.004 m
+Lmax = 235
+Interface length = 235.004 m
+Lmax = 234
+Interface length = 235.005 m
+Lmax = 235
+Interface length = 235.005 m
+Lmax = 235
+Interface length = 235.005 m
+Lmax = 235
+Interface length = 235.006 m
+Lmax = 235
+Interface length = 235.006 m
+Lmax = 235
+Interface length = 235.006 m
+Lmax = 235
+Interface length = 235.007 m
+Lmax = 235
+Interface length = 235.007 m
+Lmax = 235
+Interface length = 235.007 m
+Lmax = 235
+Interface length = 235.007 m
+Lmax = 235
+Interface length = 235.008 m
+Lmax = 235
+Interface length = 235.008 m
+Lmax = 235
+Interface length = 235.008 m
+Lmax = 235
+Interface length = 235.008 m
+Lmax = 235
+Interface length = 235.008 m
+Lmax = 235
+Interface length = 235.009 m
+Lmax = 235
+Interface length = 235.009 m
+Lmax = 235
+Interface length = 235.009 m
+Lmax = 235
+Interface length = 235.009 m
+Lmax = 235
+Interface length = 235.009 m
+Lmax = 235
+Interface length = 235.009 m
+Lmax = 235
+Interface length = 235.010 m
+  [ERROR] Target L_max not bracketed in [0.001, 0.1] for parameter alpha_t. L(lb)=235, L(ub)=235, target=213.36.
+================================================================================
+Input Line 5: 1.524	5.26	10.9	3.14	259.08
+================================================================================
+Processing line 5: target_Lmax = 259.08
+Lmax = 285
+Interface length = 571.702 m
+Lmax = 31
+Interface length = 62.658 m
+Lmax = 51
+Interface length = 103.555 m
+[bisect] alpha_t=0.05248, L_mid=51, diff=-208.08
+Lmax = 85
+Interface length = 170.704 m
+[bisect] alpha_t=0.02872, L_mid=85, diff=-174.08
+Lmax = 135
+Interface length = 272.000 m
+[bisect] alpha_t=0.01684, L_mid=135, diff=-124.08
+Lmax = 200
+Interface length = 401.261 m
+[bisect] alpha_t=0.0109, L_mid=200, diff=-59.08
+Lmax = 268
+Interface length = 537.705 m
+[bisect] alpha_t=0.00793, L_mid=268, diff=8.92
+================================================================================
+Input Line 6: 3.81	4.03	3.8	3.14	91.44
+================================================================================
+Processing line 6: target_Lmax = 91.44
+Lmax = 101
+Interface length = 101.001 m
+Lmax = 101
+Interface length = 101.013 m
+Lmax = 101
+Interface length = 101.001 m
+Lmax = 101
+Interface length = 101.001 m
+Lmax = 101
+Interface length = 101.001 m
+Lmax = 101
+Interface length = 101.001 m
+Lmax = 101
+Interface length = 101.001 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.002 m
+Lmax = 101
+Interface length = 101.003 m
+Lmax = 101
+Interface length = 101.004 m
+Lmax = 101
+Interface length = 101.004 m
+Lmax = 101
+Interface length = 101.005 m
+Lmax = 101
+Interface length = 101.005 m
+Lmax = 101
+Interface length = 101.006 m
+Lmax = 101
+Interface length = 101.006 m
+Lmax = 101
+Interface length = 101.007 m
+Lmax = 101
+Interface length = 101.007 m
+Lmax = 101
+Interface length = 101.007 m
+Lmax = 101
+Interface length = 101.008 m
+Lmax = 101
+Interface length = 101.008 m
+Lmax = 101
+Interface length = 101.008 m
+Lmax = 101
+Interface length = 101.009 m
+Lmax = 101
+Interface length = 101.009 m
+Lmax = 101
+Interface length = 101.009 m
+Lmax = 101
+Interface length = 101.010 m
+Lmax = 101
+Interface length = 101.010 m
+Lmax = 101
+Interface length = 101.010 m
+Lmax = 101
+Interface length = 101.010 m
+Lmax = 101
+Interface length = 101.011 m
+Lmax = 101
+Interface length = 101.011 m
+Lmax = 101
+Interface length = 101.011 m
+Lmax = 101
+Interface length = 101.011 m
+Lmax = 101
+Interface length = 101.012 m
+Lmax = 101
+Interface length = 101.012 m
+Lmax = 101
+Interface length = 101.012 m
+Lmax = 101
+Interface length = 101.012 m
+Lmax = 101
+Interface length = 101.013 m
+Lmax = 101
+Interface length = 101.013 m
+  [ERROR] Target L_max not bracketed in [0.001, 0.1] for parameter alpha_t. L(lb)=101, L(ub)=101, target=91.44.
+================================================================================
+Input Line 7: 2.286	14.10	3.7	3.14	146.304
+================================================================================
+Processing line 7: target_Lmax = 146.304
+Lmax = 161
+Interface length = 161.000 m
+Lmax = 161
+Interface length = 161.012 m
+Lmax = 161
+Interface length = 161.000 m
+Lmax = 161
+Interface length = 161.000 m
+Lmax = 161
+Interface length = 161.000 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m
+Lmax = 161
+Interface length = 161.001 m

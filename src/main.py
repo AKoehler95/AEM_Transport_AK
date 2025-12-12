@@ -21,12 +21,12 @@ OUTPUT_FILE      = "output_values.txt"
 STATS_FILE       = "stats_values.txt"
 ORIENTATION      = "vertical"   # "horizontal" or "vertical"
 ELEM_KIND        = "Circle"       #Circle or Line
-SOURCE_THICKNESS_MODIFIER = 0.5   # set between 0.0 and 1.0 to determine what percentage of
+SOURCE_THICKNESS_MODIFIER = 1.0   # set between 0.0 and 1.0 to determine what percentage of
                                    # aquifer thickness is radius of source thickness
 
 # New: which parameter to estimate and optional bounds
 # Options: "alpha_t", "alpha_l", "r", "C0", "ca", "gamma"
-ESTIMATE_PARAM   = "r"
+ESTIMATE_PARAM   = "alpha_t"
 
 result = None
 

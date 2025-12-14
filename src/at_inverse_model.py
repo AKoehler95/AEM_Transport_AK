@@ -89,7 +89,7 @@ ALPHA_L_WHEN_ESTIMATING_OTHERS = 2.0 #m
 # Global L_max tolerance (meters)
 L_TOLERANCE_DEFAULT = 10.0
 
-# Default stagnation limit for inverse solver (editable)
+# Default stagnation limit for inverse solver
 MAX_STAGNATION_DEFAULT = 5
 
 

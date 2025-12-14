@@ -7,17 +7,17 @@ import logging
 # Local imports
 from at_config import ATConfiguration
 from at_simulation import ATSimulation
-from at_findalpha_t import process_input_file_with_logging
+from at_inverse_model import process_input_file_with_logging
 
-# Choose mode: "simulate" to run transport sim, "findalpha" to run alpha-finder
-MODE = "simulate"  # "simulate" or "findalpha"
+# Choose mode: "simulate" to run transport sim, "inverse" to run alpha-finder
+MODE = "inverse"  # "simulate" or "inverse"
 
 # When MODE == "simulate":
 CONFIG_PATH = "simulation_config.json"
 
-# When MODE == "findalpha":
-INPUT_FILE       = "input_values.txt"
-OUTPUT_FILE      = "output_values.txt"
+# When MODE == "inverse":
+INPUT_FILE       = "inverse_model_files/input_values_new.txt"
+OUTPUT_FILE      = "inverse_model_files/output_values_new.txt"
 STATS_FILE       = "stats_values.txt"
 ORIENTATION      = "vertical"   # "horizontal" or "vertical"
 ELEM_KIND        = "Circle"       #Circle or Line
@@ -47,7 +47,7 @@ def run_simulation():
     # Return or process sim.result_tuple as needed
     return sim.result_tuple
 
-def run_findalpha(
+def run_inverse(
     input_file,
     output_file,
     stats_file,
@@ -74,8 +74,8 @@ def main():
     if MODE == "simulate":
         result = run_simulation()
         print("Simulation completed. Result tuple returned.")
-    elif MODE == "findalpha":
-        run_findalpha(
+    elif MODE == "inverse":
+        run_inverse(
             input_file=INPUT_FILE,
             output_file=OUTPUT_FILE,
             stats_file=STATS_FILE,
@@ -86,7 +86,7 @@ def main():
         )
         print(f"Inverse Dispersivity Finder completed. Results in '{OUTPUT_FILE}'. Element Statistics in '{STATS_FILE}'. Console output logged to 'findalpha_log.txt'.")
     else:
-        raise ValueError(f"Unknown MODE '{MODE}'. Use 'simulate' or 'findalpha'.")
+        raise ValueError(f"Unknown MODE '{MODE}'. Use 'simulate' or 'inverse'.")
 
 
 if __name__ == "__main__":

@@ -22,15 +22,3 @@ Element 2:
   Max = -72.008977042 mg/l
   Mean = -101.78072484 mg/l
   Standard Deviation = 5.865659517 mg/l
-
-=== Stats for Line 5 ===
-Element 1:
-  Min = 4.295790049 mg/l
-  Max = 5.867493384 mg/l
-  Mean = 5.255321981 mg/l
-  Standard Deviation = 0.216544865 mg/l
-Element 2:
-  Min = -40.223929227 mg/l
-  Max = -35.288780753 mg/l
-  Mean = -38.301711022 mg/l
-  Standard Deviation = 0.679950877 mg/l

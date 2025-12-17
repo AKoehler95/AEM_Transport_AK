@@ -85,13 +85,17 @@ FIXED_ALPHA_L = 2.0   # m
 ALPHA_T_WHEN_ESTIMATING_OTHERS = 0.1 #m
 ALPHA_L_WHEN_ESTIMATING_OTHERS = 2.0 #m
 
+
 # Global L_max tolerance (meters)
 L_TOLERANCE_DEFAULT = 10.0
+
+# Default stagnation limit for inverse solver
+MAX_STAGNATION_DEFAULT = 5
 
 
 #Folder path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FILES_DIR = os.path.join(BASE_DIR, "findalpha_files")
+FILES_DIR = os.path.join(BASE_DIR, "inverse_model_files")
 os.makedirs(FILES_DIR, exist_ok=True)
 
 class TeeOutput:
@@ -112,11 +116,65 @@ class TeeOutput:
         self.console_handle.flush()
 
 def _in_files_dir(p: str) -> str:
-    """Put relative filenames inside findalpha_files; keep absolute paths as-is."""
+    """Put relative filenames inside inverse_model_files; keep absolute paths as-is."""
     if os.path.isabs(p):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         return p
     return os.path.join(FILES_DIR, os.path.basename(p))
+
+
+def _read_cases_with_optional_header(path: str):
+    """Read cases from an input file.
+
+    Supports:
+    - Header row (first non-empty row contains any letters) which is ignored as data.
+    - Column-based rows (dicts keyed by header names).
+    - Backward compatible positional rows: r C0 ca gamma target [alpha_t alpha_l]
+
+    Empty strings/NA/NaN are treated as missing.
+    """
+    raw = [ln.strip() for ln in open(path, "r") if ln.strip()]
+    if not raw:
+        return [], None
+
+    first = raw[0]
+    has_letters = any(ch.isalpha() for ch in first)
+
+    def _clean(v):
+        if v is None:
+            return None
+        v = str(v).strip()
+        if v == "" or v.upper() in ("NA", "NAN"):
+            return None
+        return v
+
+    if has_letters:
+        header = first.split()
+        data_lines = raw[1:]
+        cases = []
+        for ln in data_lines:
+            parts = ln.split()
+            # allow short rows; pad with None
+            parts = parts + [None] * max(0, (len(header) - len(parts)))
+            row = {k: _clean(v) for k, v in zip(header, parts)}
+            cases.append(row)
+        return cases, header
+
+    # old positional format
+    cases = []
+    for ln in raw:
+        parts = ln.split()
+        cases.append({
+            "r": _clean(parts[0] if len(parts) > 0 else None),
+            "C0": _clean(parts[1] if len(parts) > 1 else None),
+            "ca": _clean(parts[2] if len(parts) > 2 else None),
+            "gamma": _clean(parts[3] if len(parts) > 3 else None),
+            "target": _clean(parts[4] if len(parts) > 4 else None),
+            # optional extras (if appended without header)
+            "alpha_t": _clean(parts[5] if len(parts) > 5 else None),
+            "alpha_l": _clean(parts[6] if len(parts) > 6 else None),
+        })
+    return cases, None
 
 #
 # Inverse-modelling overview:
@@ -265,7 +323,7 @@ def process_input_file_with_logging(
         elem_kind="Circle",
         source_thickness_modifier=1.0,
         tolerance: float = None,
-        max_stagnation: int = 5,
+        max_stagnation: int = None,
         estimate_param: str = "alpha_t",
         lower_bound: float = None,
         upper_bound: float = None
@@ -275,6 +333,12 @@ def process_input_file_with_logging(
     output_file = _in_files_dir(output_file)
     statsfile = _in_files_dir(statsfile)
     log_file = os.path.join(FILES_DIR, "findalpha_log.txt")
+
+    # Use editable module default if not provided
+    if max_stagnation is None:
+        max_stagnation = int(MAX_STAGNATION_DEFAULT)
+    else:
+        max_stagnation = int(max_stagnation)
 
     with open(log_file, 'a') as f:
         # Add timestamp header for new run
@@ -302,17 +366,41 @@ def process_input_file_with_logging(
             sys.stdout = tee_stdout
             sys.stderr = tee_stderr
 
+            # Print target parameter once per run
+            print("=" * 80)
+            print(f"Target parameter: {estimate_param}")
+            print("=" * 80)
+
             # Clear stats file
             open(statsfile, "w").close()
-            lines = [ln.strip() for ln in open(input_file) if ln.strip()]
+            cases, header = _read_cases_with_optional_header(input_file)
             results, skipped = [], []
 
-            for i, line in enumerate(lines, 1):
+            for i, row in enumerate(cases, 1):
                 f.write("=" * 80 + "\n")
-                f.write(f"Input Line {i}: {line}\n")
-                # Parse inputs
-                params = list(map(float, line.split()))
-                r, C0, Ca, gamma, target = params
+                f.write(f"Input Line {i}: {row}\n")
+                # Parse inputs (supports header-based or positional files)
+                def _f(name, default=None):
+                    v = row.get(name, None)
+                    return default if v is None else float(v)
+
+                r = _f("r")
+                C0 = _f("C0")
+                Ca = _f("ca")
+                gamma = _f("gamma")
+
+                # target can be labelled 'target' or 'target_Lmax'
+                target = _f("target", None)
+                if target is None:
+                    target = _f("target_Lmax")
+
+                # optional per-case dispersivities
+                alpha_t_in = _f("alpha_t", None)
+                alpha_l_in = _f("alpha_l", None)
+
+                # for error reporting
+                params = [r, C0, Ca, gamma, target, alpha_t_in, alpha_l_in]
+
                 if estimate_param == "r":
                     r_eff = r
                 else:
@@ -320,6 +408,10 @@ def process_input_file_with_logging(
 
                 print("=" * 80)
                 print(f"Processing line {i}: target_Lmax = {target}")
+                if alpha_t_in is not None or alpha_l_in is not None:
+                    print(f"Case overrides: alpha_t={alpha_t_in} alpha_l={alpha_l_in}")
+                # print(f"Target parameter: {estimate_param}")  # Removed per instructions
+                print("=" * 80)
                 try:
                     # Decide default bounds if not provided using PARAM_SEARCH_DEFAULTS
                     pdefs = PARAM_SEARCH_DEFAULTS.get(estimate_param, {})
@@ -352,7 +444,7 @@ def process_input_file_with_logging(
                     if not (np.isfinite(lb) and np.isfinite(ub) and lb < ub):
                         raise ValueError(f"Invalid bounds: lower={lb}, upper={ub}")
 
-                    # Fixed parameters with defaults
+                    # Fixed parameters with per-case override support
                     fixed = {
                         "r": r_eff,
                         "C0": C0,
@@ -360,12 +452,15 @@ def process_input_file_with_logging(
                         "gamma": gamma,
                     }
                     if estimate_param == "alpha_t":
-                        fixed["alpha_l"] = FIXED_ALPHA_L
+                        # estimating alpha_t → alpha_l fixed
+                        fixed["alpha_l"] = alpha_l_in if alpha_l_in is not None else FIXED_ALPHA_L
                     elif estimate_param == "alpha_l":
-                        fixed["alpha_t"] = FIXED_ALPHA_T
+                        # estimating alpha_l → alpha_t fixed
+                        fixed["alpha_t"] = alpha_t_in if alpha_t_in is not None else FIXED_ALPHA_T
                     else:
-                        fixed["alpha_l"] = ALPHA_L_WHEN_ESTIMATING_OTHERS
-                        fixed["alpha_t"] = ALPHA_T_WHEN_ESTIMATING_OTHERS
+                        # estimating other parameters → both dispersivities fixed
+                        fixed["alpha_t"] = alpha_t_in if alpha_t_in is not None else ALPHA_T_WHEN_ESTIMATING_OTHERS
+                        fixed["alpha_l"] = alpha_l_in if alpha_l_in is not None else ALPHA_L_WHEN_ESTIMATING_OTHERS
 
                     # L_max tolerance: global default unless overridden
                     if tolerance is None:
@@ -383,7 +478,8 @@ def process_input_file_with_logging(
                         orientation=orientation,
                         elem_kind=elem_kind,
                         L_tolerance=L_tol,
-                        param_defaults=pdefs
+                        param_defaults=pdefs,
+                        max_stagnation=max_stagnation
                     )
 
                     # Pretty symbol for the parameter
@@ -437,7 +533,8 @@ def estimate_parameter_scanned(
         L_tolerance: float = 1e-3,
         param_defaults: dict = None,
         max_scan_steps: int = 300,
-        max_bisect_iter: int = 60
+        max_bisect_iter: int = 60,
+        max_stagnation: int = None
 ):
     """
     generalized dynamic-scan -> bracket -> bisection:
@@ -453,6 +550,12 @@ def estimate_parameter_scanned(
     param_defaults = param_defaults or {}
     lb = float(lower_bound)
     ub = float(upper_bound)
+
+    # Use editable module default if not provided
+    if max_stagnation is None:
+        max_stagnation = int(MAX_STAGNATION_DEFAULT)
+    else:
+        max_stagnation = int(max_stagnation)
 
     if not (np.isfinite(lb) and np.isfinite(ub) and lb < ub):
         raise ValueError(f"Bad bounds: lower={lb}, upper={ub}")
@@ -475,12 +578,20 @@ def estimate_parameter_scanned(
         if "alpha_t" not in fp or "alpha_l" not in fp:
             raise ValueError("Both alpha_t and alpha_l must be defined before simulation.")
 
+        ctx = f"{param_name}={float(val):.6g}"
         L, sim = compute_lmax_general(
             fp["r"], fp["C0"], fp["ca"], fp["gamma"],
             fp["alpha_t"], fp["alpha_l"],
             orientation=orientation, elem_kind=elem_kind, target_Lmax=target_Lmax,
-            print_context=f"{param_name} = {float(val):.6g}"
+            print_context=ctx
         )
+
+        # Standardized per-evaluation print (covers lower/upper scans and mid-scan too)
+        if L is None or (isinstance(L, float) and np.isnan(L)):
+            print(f"L_max({ctx}) = -")
+        else:
+            print(f"L_max({ctx}) = {L}")
+
         return L, sim
 
     # Dynamic step parameters
@@ -556,6 +667,21 @@ def estimate_parameter_scanned(
         )
     f_q = Lq - target_Lmax
 
+    # Immediate rejection if target is outside attainable L_max range at the bounds
+    L_lo = min(Lp, Lq)
+    L_hi = max(Lp, Lq)
+    if target_Lmax < (L_lo - L_tolerance) or target_Lmax > (L_hi + L_tolerance):
+        raise RuntimeError(
+            f"Target L_max={target_Lmax} not within bounds implied by parameter interval [{lb}, {ub}]. "
+            f"Computed L_max range at bounds: [{L_lo}, {L_hi}]."
+        )
+
+    # If either bound already matches within tolerance, stop immediately
+    if abs(f_p) <= L_tolerance:
+        return p, Lp, simp
+    if abs(f_q) <= L_tolerance:
+        return q, Lq, simq
+
     # Ensure bracketing; if not, scan between p and q for sign change
     if f_p * f_q > 0:
         last_val, last_f = p, f_p
@@ -564,8 +690,10 @@ def estimate_parameter_scanned(
         found = False
         x = p + mid_step
         while x <= q:
-            Lx, _ = eval_param(x)
+            Lx, simx = eval_param(x)
             fx = Lx - target_Lmax
+            if abs(fx) <= L_tolerance:
+                return x, Lx, simx
             if last_f * fx <= 0:
                 p, f_p = last_val, last_f
                 q, f_q = x, fx
@@ -581,20 +709,57 @@ def estimate_parameter_scanned(
 
     # Bisection
     best_sim = None
+    best_mid = None
+    best_abs = float("inf")
+    stagn = 0
+    last_best_abs = None
+
     for _ in range(int(max_bisect_iter)):
         mid = 0.5 * (p + q)
         Lm, simm = eval_param(mid)
         diff = Lm - target_Lmax
-        print(f"[bisect] {param_name}={mid:.8g}, L_mid={Lm:.8g}, diff={diff:.8g}")
-        if abs(diff) <= L_tolerance:
-            return mid, Lm, simm
-        if f_p * diff <= 0:
-            q, f_q = mid, diff
-            best_sim = simm
-        else:
-            p, f_p = mid, diff
+        absdiff = abs(diff)
+
+        # track best-so-far
+        if absdiff < best_abs:
+            best_abs = absdiff
+            best_mid = mid
             best_sim = simm
 
-    mid = 0.5 * (p + q)
-    Lm, simm = eval_param(mid)
-    return mid, Lm, simm or best_sim
+        print(
+            f"[bisect] target={target_Lmax:.8g} | {param_name}={mid:.8g} | "
+            f"L_max ({param_name}={mid:.8g}) = {Lm:.8g} | diff={diff:.8g}"
+        )
+
+        # tolerance break (robust)
+        if absdiff <= L_tolerance:
+            return mid, Lm, simm
+
+        # stagnation break: if best_abs no longer improves
+        if last_best_abs is None:
+            last_best_abs = best_abs
+        else:
+            if abs(last_best_abs - best_abs) < 1e-12:
+                stagn += 1
+            else:
+                stagn = 0
+            last_best_abs = best_abs
+
+        if stagn >= int(max_stagnation):
+            # Return best-so-far if we're stuck
+            if best_mid is not None:
+                Lb, sim_b = eval_param(best_mid)
+                return best_mid, Lb, sim_b or best_sim
+            break
+
+        # usual bisection interval update
+        if f_p * diff <= 0:
+            q, f_q = mid, diff
+        else:
+            p, f_p = mid, diff
+
+    # If bisection exhausted, return best-so-far (or midpoint if none)
+    if best_mid is None:
+        best_mid = 0.5 * (p + q)
+    Lm, simm = eval_param(best_mid)
+    return best_mid, Lm, simm or best_sim

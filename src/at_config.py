@@ -22,7 +22,7 @@ class ATConfiguration:
         self.gamma: float = 3.5
         self.dom_xmin: float = 0.0
         self.dom_xmax: float = 600.0
-        self.dom_ymin: float = -10.0
+        self.dom_ymin: float = -20.0
         self.dom_ymax: float = 40.0
         self.dom_inc: float = 0.5
         self.num_cp: int = 100  # Number of controll points

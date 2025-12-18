@@ -81,9 +81,9 @@ PARAM_SEARCH_DEFAULTS = {
 #       ALPHA_L_WHEN_ESTIMATING_OTHERS and ALPHA_T_WHEN_ESTIMATING_OTHERS respectively.
 
 FIXED_ALPHA_T = 0.1   # m
-FIXED_ALPHA_L = 2.0   # m
+FIXED_ALPHA_L = 1.0   # m
 ALPHA_T_WHEN_ESTIMATING_OTHERS = 0.1 #m
-ALPHA_L_WHEN_ESTIMATING_OTHERS = 2.0 #m
+ALPHA_L_WHEN_ESTIMATING_OTHERS = 1.0 #m
 
 
 # Global L_max tolerance (meters)
@@ -190,7 +190,7 @@ def compute_lmax(alpha, r, C0, Ca, gamma, orientation, elem_kind, target_Lmax, p
     cfg.ca = Ca
     cfg.gamma = gamma
     cfg.orientation = orientation
-    cfg.dom_inc = 1.0
+    cfg.dom_inc = 0.5
     if target_Lmax is not None:
         cfg.dom_xmax = max(cfg.dom_xmax, target_Lmax * 1.1)
 
@@ -238,7 +238,7 @@ def compute_lmax_general(
     cfg.gamma = float(gamma)
     cfg.orientation = orientation
     # Grid increment
-    cfg.dom_inc = 1.0
+    cfg.dom_inc = 0.5
 
     # Expand domain in x if target_Lmax is known
     if target_Lmax is not None and cfg.dom_xmax < target_Lmax * 1.1:

@@ -10,7 +10,7 @@ from at_simulation import ATSimulation
 from at_inverse_model import process_input_file_with_logging
 
 # Choose mode: "simulate" to run transport sim, "inverse" to run alpha-finder
-MODE = "inverse"  # "simulate" or "inverse"
+MODE = "simulate"  # "simulate" or "inverse"
 
 # When MODE == "simulate":
 CONFIG_PATH = "simulation_config.json"

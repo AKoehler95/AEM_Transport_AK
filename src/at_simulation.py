@@ -1,5 +1,5 @@
-# Written by Willi Kappler, willi.kappler@uni-tuebingen.de
-# Based on code from Anton Köhler
+# Written by Alvin Yadav
+# Based on code from Willi Kappler and Anton Köhler
 
 # Python std library:
 import math
@@ -695,25 +695,26 @@ class ATSimulation:
 
         X, Y = np.meshgrid(self.xaxis, self.yaxis)
 
-        donor = plt.contourf(
-            X, Y,
-            self.result,
-            levels=donor_levels,
-            cmap='Reds',
-            extend='max'
-        )
-        acceptor = plt.contourf(
-            X, Y,
-            self.result,
-            levels=acceptor_levels,
-            cmap='Blues_r',
-            extend='min'
-        )
+        # donor = plt.contourf(
+        #     X, Y,
+        #     self.result,
+        #     levels=donor_levels,
+        #     cmap='Reds',
+        #     extend='max'
+        # )
+        # acceptor = plt.contourf(
+        #     X, Y,
+        #     self.result,
+        #     levels=acceptor_levels,
+        #     cmap='Blues_r',
+        #     extend='min'
+        # )
         Plume_max = plt.contour(
             X, Y,
             self.result,
             levels=[0],
             linewidths=2,
+            linestyles = ':',
             colors='k'
         )
 
@@ -735,26 +736,26 @@ class ATSimulation:
 
         plt.subplots_adjust(bottom=0.20)
 
-        cbar_donor = plt.colorbar(
-            donor,
-            ticks=donor_levels,
-            label='Electron donor concentration [mg/l]',
-            location='bottom',
-            pad=0.02,
-            aspect=75,
-        )
-        cbar_donor.ax.tick_params(labelsize=14)
+        # cbar_donor = plt.colorbar(
+        #     donor,
+        #     ticks=donor_levels,
+        #     label='Electron donor concentration [mg/l]',
+        #     location='bottom',
+        #     pad=0.02,
+        #     aspect=75,
+        # )
+        # cbar_donor.ax.tick_params(labelsize=14)
 
-        cbar_acceptor = plt.colorbar(
-            acceptor,
-            ticks=acceptor_levels,
-            label='Electron acceptor concentration [mg/l]',
-            location='bottom',
-            pad=0.12,
-            aspect=75,
-        )
-        cbar_acceptor.set_ticklabels([f"{abs(t):.0f}" for t in acceptor_levels])
-        cbar_acceptor.ax.tick_params(labelsize=14)
+        # cbar_acceptor = plt.colorbar(
+        #     acceptor,
+        #     ticks=acceptor_levels,
+        #     label='Electron acceptor concentration [mg/l]',
+        #     location='bottom',
+        #     pad=0.12,
+        #     aspect=75,
+        # )
+        # cbar_acceptor.set_ticklabels([f"{abs(t):.0f}" for t in acceptor_levels])
+        # cbar_acceptor.ax.tick_params(labelsize=14)
 
         if self.config.plot_aspect == "scaled":
             plt.axis("scaled")

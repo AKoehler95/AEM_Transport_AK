@@ -560,8 +560,8 @@ class ATSimulation:
         for idx, elem in enumerate(self.config.elements):
             if elem.kind == ATElementType.Circle:
                 phi = np.linspace(0, 2 * pi, 360)
-                x_test = elem.x + (elem.r + 1e-9) * np.cos(phi)
-                y_test = elem.y + (elem.r + 1e-9) * np.sin(phi)
+                x_test = elem.x + (elem.r + 1e-2) * np.cos(phi)
+                y_test = elem.y + (elem.r + 1e-2) * np.sin(phi)
 
             elif elem.kind == ATElementType.Ellipse:
                 t = np.linspace(0, 2 * pi, 360, endpoint=False)
@@ -574,7 +574,7 @@ class ATSimulation:
 
             elif elem.kind == ATElementType.Line:
                 half_len:float = elem.r
-                s = np.linspace(-half_len + 1e-9, half_len - 1e-9, 360)
+                s = np.linspace(-half_len + 1e-2, half_len - 1e-2, 360)
                 theta: float = elem.theta
                 x_test = elem.x + s * cos(theta)
                 y_test = elem.y + s * sin(theta)
@@ -587,17 +587,20 @@ class ATSimulation:
             max_val: float = round(np.max(Err), 9)
             mean_val: float = round(np.mean(Err), 9)
             std_val: float = round(np.std(Err), 9)
+            flux_val: float = round(np.sum((i - elem.c)*(2*pi*elem.r)/(1e-2*360) for i in Err),9)
 
             print(f'Element {idx + 1}:')
             print(f'  Min = {min_val} mg/l')
             print(f'  Max = {max_val} mg/l')
             print(f'  Mean = {mean_val} mg/l')
             print(f'  Standard Deviation = {std_val} mg/l')
+            print(f'  Flux = {flux_val}')
 
             stats[f"Min{idx + 1}"] = min_val
             stats[f"Max{idx + 1}"] = max_val
             stats[f"Mean{idx + 1}"] = mean_val
             stats[f"Std{idx + 1}"] = std_val
+            stats[f"Flux{idx + 1}"] = flux_val
 
         results_dir: str = os.path.join("Results")
         os.makedirs(results_dir, exist_ok=True)
@@ -695,20 +698,20 @@ class ATSimulation:
 
         X, Y = np.meshgrid(self.xaxis, self.yaxis)
 
-        # donor = plt.contourf(
-        #     X, Y,
-        #     self.result,
-        #     levels=donor_levels,
-        #     cmap='Reds',
-        #     extend='max'
-        # )
-        # acceptor = plt.contourf(
-        #     X, Y,
-        #     self.result,
-        #     levels=acceptor_levels,
-        #     cmap='Blues_r',
-        #     extend='min'
-        # )
+        donor = plt.contourf(
+            X, Y,
+            self.result,
+            levels=donor_levels,
+            cmap='Reds',
+            extend='max'
+        )
+        acceptor = plt.contourf(
+            X, Y,
+            self.result,
+            levels=acceptor_levels,
+            cmap='Blues_r',
+            extend='min'
+        )
         Plume_max = plt.contour(
             X, Y,
             self.result,
@@ -736,26 +739,26 @@ class ATSimulation:
 
         plt.subplots_adjust(bottom=0.20)
 
-        # cbar_donor = plt.colorbar(
-        #     donor,
-        #     ticks=donor_levels,
-        #     label='Electron donor concentration [mg/l]',
-        #     location='bottom',
-        #     pad=0.02,
-        #     aspect=75,
-        # )
-        # cbar_donor.ax.tick_params(labelsize=14)
+        cbar_donor = plt.colorbar(
+            donor,
+            ticks=donor_levels,
+            label='Electron donor concentration [mg/l]',
+            location='bottom',
+            pad=0.02,
+            aspect=75,
+        )
+        cbar_donor.ax.tick_params(labelsize=14)
 
-        # cbar_acceptor = plt.colorbar(
-        #     acceptor,
-        #     ticks=acceptor_levels,
-        #     label='Electron acceptor concentration [mg/l]',
-        #     location='bottom',
-        #     pad=0.12,
-        #     aspect=75,
-        # )
-        # cbar_acceptor.set_ticklabels([f"{abs(t):.0f}" for t in acceptor_levels])
-        # cbar_acceptor.ax.tick_params(labelsize=14)
+        cbar_acceptor = plt.colorbar(
+            acceptor,
+            ticks=acceptor_levels,
+            label='Electron acceptor concentration [mg/l]',
+            location='bottom',
+            pad=0.12,
+            aspect=75,
+        )
+        cbar_acceptor.set_ticklabels([f"{abs(t):.0f}" for t in acceptor_levels])
+        cbar_acceptor.ax.tick_params(labelsize=14)
 
         if self.config.plot_aspect == "scaled":
             plt.axis("scaled")

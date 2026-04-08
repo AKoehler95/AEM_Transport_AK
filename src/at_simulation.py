@@ -286,6 +286,11 @@ class ATSimulation:
         os.makedirs(results_dir, exist_ok=True)
         self.run_index = self.get_next_run_index(results_dir)
 
+        # Create a dedicated subdirectory for this run: Results/0001/
+        self.run_dir = os.path.join(results_dir, f"{self.run_index:04d}")
+        os.makedirs(self.run_dir, exist_ok=True)
+
+        self.plot_input()
         self.print_statistics(cpu_time)
         self.plot_result()
         #self.plot_quiver()
@@ -503,30 +508,17 @@ class ATSimulation:
         return np.array(A_rows), np.array(b_vec)
 
     def _solve_scaled_lstsq(self, A: np.ndarray, b: np.ndarray,
-                            rcond: float = 1e-10) -> np.ndarray:
+                            rcond: float = 1e-10) -> tuple:
         """
         Solve the least-squares system with row scaling for numerical stability.
 
-        Each row of A (and corresponding entry of b) is divided by the
-        row's maximum absolute value before solving. This equilibrates
-        the row norms so that rows with very small entries (from far-field
-        cross-terms) don't disproportionately distort the solve.
-
-        Parameters
-        ----------
-        A : np.ndarray, shape (m, n)
-        b : np.ndarray, shape (m,)
-        rcond : float
-            Cutoff for small singular values (passed to lstsq).
-
         Returns
         -------
-        coeffs : np.ndarray, shape (n,)
+        (coeffs, cond_number)
+            coeffs: np.ndarray, shape (n,)
+            cond_number: float, condition number of the scaled matrix
         """
         row_scales = np.max(np.abs(A), axis=1)
-
-        # Rows that are entirely zero (or near-zero) get scale = 1 to avoid division by zero.
-        # These rows carry no information and lstsq will effectively ignore them.
         row_scales = np.where(row_scales < 1e-300, 1.0, row_scales)
 
         A_scaled = A / row_scales[:, None]
@@ -534,16 +526,13 @@ class ATSimulation:
 
         coeffs, residuals, rank, sv = np.linalg.lstsq(A_scaled, b_scaled, rcond=rcond)
 
-        # Log conditioning diagnostics
+        cond = np.inf
         if sv is not None and len(sv) > 0:
             cond = sv[0] / sv[-1] if sv[-1] > 0 else np.inf
             logger.info(f"  lstsq: rank={rank}, cond={cond:.2e}, "
                         f"sv_max={sv[0]:.2e}, sv_min={sv[-1]:.2e}")
-            if cond > 1e12:
-                logger.warning(f"  HIGH CONDITION NUMBER ({cond:.2e}) — "
-                               f"results may be numerically unreliable")
 
-        return coeffs
+        return coeffs, cond
 
     def _evaluate_group_field(self, group_indices: list, elements: list,
                               coeff: np.ndarray, n: int,
@@ -685,8 +674,7 @@ class ATSimulation:
         A, b = self._build_group_system(
             all_indices, elements, alpha_l, alpha_t, beta, ca, gamma, n
         )
-        coeffs = self._solve_scaled_lstsq(A, b)
-
+        coeffs, _ = self._solve_scaled_lstsq(A, b)
         coeff = np.zeros(len(elements) * total_terms)
         for local_idx, global_idx in enumerate(all_indices):
             start = global_idx * total_terms
@@ -752,7 +740,7 @@ class ATSimulation:
                         )
                         b_corrected[cp_idx] -= F_other
 
-                coeffs = self._solve_scaled_lstsq(gd['A'], b_corrected)
+                coeffs, _ = self._solve_scaled_lstsq(gd['A'], b_corrected)
 
                 for local_idx, global_idx in enumerate(group):
                     start = global_idx * total_terms
@@ -773,45 +761,110 @@ class ATSimulation:
         print(f"Decoupled solve: {max_iter} iterations (rel_change={rel_change:.2e})")
         return coeff
 
+    @staticmethod
+    def _find_atomic_units(elements: list) -> tuple:
+        """
+        Identify groups of elements that must always be solved together,
+        and shared elements that must be included in every group.
+
+        In vertical orientation, each real source has a paired image element.
+        These two must never be separated. A single zero-isoline at the end
+        of the element list enforces the surface boundary condition and must
+        be included in every solve group.
+
+        In horizontal orientation, each element is independent with no
+        shared elements.
+
+        Returns
+        -------
+        (units, shared)
+            units: list of list of int — each inner list is an atomic unit
+            shared: list of int — indices that must be included in every group
+        """
+        units = []
+        shared = []
+        i = 0
+        while i < len(elements):
+            eid = elements[i].id.lower() if elements[i].id else ""
+
+            if eid.startswith("zero_"):
+                # Zero-isoline is shared across all groups
+                shared.append(i)
+                i += 1
+            elif (not eid.startswith("image_")
+                  and i + 1 < len(elements)
+                  and (elements[i+1].id or "").lower().startswith("image_")):
+                # Source-image pair
+                units.append([i, i+1])
+                i += 2
+            else:
+                # Standalone element
+                units.append([i])
+                i += 1
+
+        return units, shared
+
     def solve_system(self, alpha_l: float, alpha_t: float, beta: float,
             gamma: float, ca: float, n: int, M: int):
         """
         Solve for Mathieu function expansion coefficients.
 
-        Uses a recursive split strategy:
-        1. Try solving all elements together in one coupled matrix.
-        2. Validate by checking boundary accuracy.
-        3. If validation fails, split into two halves and try each half.
-        4. Repeat until every group passes validation or is a single element.
-        5. Iterate between groups to correct for cross-group plume overlap.
+        Strategy:
+        1. Try solving all elements in one coupled matrix using the
+           standard lstsq (same as the original code).
+        2. Check the condition number.
+        3. If well-conditioned (cond < 10^14), accept the result.
+        4. If ill-conditioned, split into groups and solve iteratively
+           (using row-scaled lstsq for the sub-group solves).
         """
         elements = self.config.elements
         num_elements = len(elements)
         total_terms = 2 * n - 1
+        cond_threshold = 1e14
 
-        # Find groups that can each be solved accurately
+        # --- Step 1: Try coupled solve (same as OG code) ---
         all_indices = list(range(num_elements))
-        groups = self._split_until_valid(
-            all_indices, elements, n, total_terms,
-            alpha_l, alpha_t, beta, ca, gamma
+        A, b = self._build_group_system(
+            all_indices, elements, alpha_l, alpha_t, beta, ca, gamma, n
         )
 
-        # Allocate and fill coefficient vector
+        # Use rcond=None (OG behavior) and no row scaling
+        coeffs, residuals, rank, sv = np.linalg.lstsq(A, b, rcond=None)
+
+        cond = np.inf
+        if sv is not None and len(sv) > 0:
+            cond = sv[0] / sv[-1] if sv[-1] > 0 else np.inf
+
+        if cond < cond_threshold:
+            # Well-conditioned: accept the coupled solve
+            self.coeff = np.zeros(num_elements * total_terms)
+            for li, gi in enumerate(all_indices):
+                self.coeff[gi*total_terms:(gi+1)*total_terms] = \
+                    coeffs[li*total_terms:(li+1)*total_terms]
+            print(f"Coupled solve: OK (cond={cond:.1e})")
+            return
+
+        # --- Step 2: Ill-conditioned — split and solve iteratively ---
+        print(f"Coupled solve ill-conditioned (cond={cond:.1e}) "
+              f"— switching to decoupled solve")
+
+        units, shared = self._find_atomic_units(elements)
+        groups = self._split_until_valid(
+            all_indices, elements, units, shared, n, total_terms,
+            alpha_l, alpha_t, beta, ca, gamma,
+            cond_threshold
+        )
+
         self.coeff = np.zeros(num_elements * total_terms)
 
         if len(groups) == 1:
-            # Single group: already solved and validated, just store
-            A, b = self._build_group_system(
-                groups[0], elements, alpha_l, alpha_t, beta, ca, gamma, n
-            )
-            coeffs = self._solve_scaled_lstsq(A, b)
-            for li, gi in enumerate(groups[0]):
+            # Split didn't help — store the coupled result anyway
+            for li, gi in enumerate(all_indices):
                 self.coeff[gi*total_terms:(gi+1)*total_terms] = \
                     coeffs[li*total_terms:(li+1)*total_terms]
-            print(f"Coupled solve: OK ({num_elements} elements in 1 group)")
+            print(f"Could not split further — using coupled result")
             return
 
-        # Multiple groups: solve with iterative cross-group correction
         print(f"Split into {len(groups)} groups: "
               f"{[sorted(g) for g in groups]}")
 
@@ -821,67 +874,70 @@ class ATSimulation:
         )
 
     def _split_until_valid(self, indices: list, elements: list,
+                           units: list, shared: list,
                            n: int, total_terms: int,
                            alpha_l: float, alpha_t: float,
-                           beta: float, ca: float, gamma: float) -> list:
+                           beta: float, ca: float, gamma: float,
+                           cond_threshold: float) -> list:
         """
         Recursively split a group of element indices until each sub-group
-        produces a valid coupled solve.
+        has a well-conditioned solve (condition number < threshold).
 
-        Returns a list of groups (each a list of element indices) where
-        every group passes boundary validation when solved alone.
+        Splitting respects atomic units and shared elements.
         """
-        if len(indices) <= 1:
+        index_set = set(indices)
+        contained_units = [u for u in units
+                           if all(i in index_set for i in u)]
+
+        # Base case: single atomic unit — cannot split further
+        if len(contained_units) <= 1:
             return [indices]
 
-        # Try solving this group as one coupled system
+        # Try solving this group
         A, b = self._build_group_system(
             indices, elements, alpha_l, alpha_t, beta, ca, gamma, n
         )
-        coeffs = self._solve_scaled_lstsq(A, b)
+        coeffs, cond = self._solve_scaled_lstsq(A, b)
 
-        # Place into a temporary full-size coefficient vector for validation
-        coeff_temp = np.zeros(len(elements) * total_terms)
-        for li, gi in enumerate(indices):
-            coeff_temp[gi*total_terms:(gi+1)*total_terms] = \
-                coeffs[li*total_terms:(li+1)*total_terms]
-
-        # Validate only the elements in this group
-        is_valid = self._validate_group_boundary(
-            indices, elements, coeff_temp, n,
-            alpha_l, alpha_t, beta, ca, gamma
-        )
-
-        if is_valid:
+        if cond < cond_threshold:
             return [indices]
 
-        # Sort by x-position, then split at the largest spatial gap.
-        # This ensures spatially close elements stay together.
-        sorted_indices = sorted(indices, key=lambda i: elements[i].x)
-        xs = [elements[i].x for i in sorted_indices]
+        # Ill-conditioned — split at largest gap
+        sorted_units = sorted(contained_units,
+                              key=lambda u: (elements[u[0]].x,
+                                             elements[u[0]].y))
 
         max_gap = -1
-        split_pos = 1  # default: split after first element
-        for k in range(1, len(xs)):
-            gap = xs[k] - xs[k-1]
+        split_pos = 1
+        for k in range(1, len(sorted_units)):
+            prev_src = elements[sorted_units[k-1][0]]
+            curr_src = elements[sorted_units[k][0]]
+            gap = math.sqrt((curr_src.x - prev_src.x)**2 +
+                            (curr_src.y - prev_src.y)**2)
             if gap > max_gap:
                 max_gap = gap
                 split_pos = k
 
-        left = sorted_indices[:split_pos]
-        right = sorted_indices[split_pos:]
+        left_units = sorted_units[:split_pos]
+        right_units = sorted_units[split_pos:]
+
+        left = [i for u in left_units for i in u] + shared
+        right = [i for u in right_units for i in u] + shared
+
+        # Deduplicate (shared might already be in units)
+        left = sorted(set(left))
+        right = sorted(set(right))
 
         logger.info(f"  Splitting {sorted(indices)} -> "
-                    f"{sorted(left)} + {sorted(right)} "
-                    f"(gap={max_gap:.1f}m)")
+                    f"{left} + {right} (cond={cond:.1e}, gap={max_gap:.1f})")
 
         left_groups = self._split_until_valid(
-            left, elements, n, total_terms,
-            alpha_l, alpha_t, beta, ca, gamma
+            left, elements, units, shared, n, total_terms,
+            alpha_l, alpha_t, beta, ca, gamma, cond_threshold
         )
         right_groups = self._split_until_valid(
-            right, elements, n, total_terms,
-            alpha_l, alpha_t, beta, ca, gamma
+            right, elements, units, shared, n, total_terms,
+            alpha_l, alpha_t, beta, ca, gamma, cond_threshold
         )
 
         return left_groups + right_groups
@@ -895,21 +951,20 @@ class ATSimulation:
         Check whether the current coefficients produce accurate boundary
         values for the elements in group_indices.
 
-        Only evaluates contributions from elements within this group
-        (not all elements), since cross-group contributions are handled
-        by the iterative solver.
+        Compares in F-space (the transformed variable that the matrix
+        equation actually solves for) to correctly handle all element
+        types: sources, images, and zero-isolines.
         """
         total_terms = 2 * n - 1
 
         for idx in group_indices:
             elem = elements[idx]
-            target_conc = elem.c
             outline = elem.outline
             step = max(1, len(outline) // 10)
 
             errors = []
             for (x_cp, y_cp) in outline[::step]:
-                # Evaluate field from THIS GROUP's elements only
+                # Evaluate F from THIS GROUP's elements only
                 F = 0.0
                 for eidx in group_indices:
                     e = elements[eidx]
@@ -923,15 +978,19 @@ class ATSimulation:
                         Fi += block[2*j  ] * e.m.ce(j, psi).real * e.m.Ke(j, eta).real
                     F += Fi
 
-                total = F * np.exp(beta * x_cp)
-                if total > ca:
-                    conc = (total - ca) / gamma
-                else:
-                    conc = total - ca
-                errors.append(abs(conc - target_conc))
+                # Compare in F-space against the actual boundary condition
+                f_tgt = self.f_target(x_cp, elem, ca, gamma, beta)
+                if f_tgt is not None:
+                    errors.append(abs(F - f_tgt))
+
+            if not errors:
+                continue
 
             mean_err = np.mean(errors)
-            rel_err = mean_err / max(abs(target_conc), 1e-10)
+            # Normalise by the target magnitude
+            f_tgt_sample = self.f_target(elem.x, elem, ca, gamma, beta)
+            denom = max(abs(f_tgt_sample), 1e-30) if f_tgt_sample is not None else 1e-30
+            rel_err = mean_err / denom
             if rel_err > max_rel_error:
                 return False
 
@@ -1051,14 +1110,12 @@ class ATSimulation:
         if not os.path.exists(results_dir):
             return 1
 
-        existing_files = os.listdir(results_dir)
         max_index: int = 0
-
-        for filename in existing_files:
-            if filename.startswith('run_') and '_' in filename[4:]:
+        for entry in os.listdir(results_dir):
+            # Each run lives in a zero-padded 4-digit subdirectory, e.g. "0001"
+            if os.path.isdir(os.path.join(results_dir, entry)):
                 try:
-                    index_str: str = filename[4:].split('_')[0]
-                    index: int = int(index_str)
+                    index: int = int(entry)
                     max_index = max(max_index, index)
                 except ValueError:
                     continue
@@ -1221,11 +1278,10 @@ class ATSimulation:
             stats[f"Mean{idx + 1}"] = mean_val
             stats[f"Std{idx + 1}"] = std_val
 
-        results_dir: str = os.path.join("Results")
-        os.makedirs(results_dir, exist_ok=True)
-
         filename_suffix: str = self.generate_filename_suffix()
-        stats_filename: str = os.path.join(results_dir, f"run_{self.run_index:04d}_stats_{filename_suffix}.txt")
+        stats_filename: str = os.path.join(
+            self.run_dir, f"{self.run_index:04d}_stats_{filename_suffix}.txt"
+        )
 
         # save statistics with config
         with open(stats_filename, "w") as f:
@@ -1296,11 +1352,127 @@ class ATSimulation:
         plt.tight_layout()
 
         error_filename = os.path.join(
-            results_dir,
-            f"run_{self.run_index:04d}_error_{filename_suffix}.pdf"
+            self.run_dir,
+            f"{self.run_index:04d}_error_{filename_suffix}.pdf"
         )
         plt.savefig(error_filename)
         print(f"Error plot saved to: {error_filename}")
+
+    def plot_input(self):
+        """
+        Generate an input plot of the source element layout, cropped to the
+        source zone, and save it to the run subdirectory.
+        """
+        import matplotlib.patches as mpatches
+
+        # Use only the original (non-image, non-zero) elements for the plot
+        elements = [e for e in self.config.elements
+                    if not e.id.lower().startswith("image_")
+                    and not e.id.lower().startswith("zero_")]
+
+        if not elements:
+            return
+
+        concs = [e.c for e in elements]
+        max_conc = max(concs)
+        min_conc = min(concs)
+        has_donor = max_conc > 0
+        has_acceptor = min_conc < 0
+        ca = self.config.ca
+
+        donor_cmap = plt.cm.Reds
+        acceptor_cmap = plt.cm.Blues_r
+        donor_norm = mpl.colors.Normalize(vmin=0, vmax=max_conc if has_donor else 1)
+        acc_norm = mpl.colors.Normalize(vmin=min_conc if has_acceptor else -ca, vmax=0)
+
+        # Tight bounding box around elements with padding
+        all_x = [e.x for e in elements]
+        all_y = [e.y for e in elements]
+        all_r = [e.r for e in elements]
+        r_max = max(all_r)
+        span_x = max(max(all_x) - min(all_x), r_max * 2)
+        span_y = max(max(all_y) - min(all_y), r_max * 2)
+        pad = max(span_x, span_y) * 0.35
+        xmin = min(all_x) - r_max - pad
+        xmax = max(all_x) + r_max + pad
+        ymin = min(all_y) - r_max - pad
+        ymax = max(all_y) + r_max + pad
+
+        mpl.rcParams.update({"font.size": 22})
+        fig, ax = plt.subplots(figsize=(16, 9), dpi=300)
+        ax.set_facecolor(acceptor_cmap(1.0))
+
+        for e in elements:
+            c_val = e.c
+            if c_val >= 0:
+                color = donor_cmap(donor_norm(c_val)) if has_donor else donor_cmap(0.5)
+            else:
+                color = acceptor_cmap(acc_norm(c_val)) if has_acceptor else acceptor_cmap(0.5)
+
+            if e.kind == ATElementType.Circle:
+                ax.add_patch(mpatches.Circle(
+                    (e.x, e.y), e.r,
+                    facecolor=color, edgecolor="black", linewidth=1.2, zorder=3
+                ))
+            elif e.kind == ATElementType.Ellipse:
+                ax.add_patch(mpatches.Ellipse(
+                    (e.x, e.y),
+                    width=2 * e.r,
+                    height=2 * (e.b if e.b is not None else e.r),
+                    angle=math.degrees(e.theta),
+                    facecolor=color, edgecolor="black", linewidth=1.2, zorder=3
+                ))
+            elif e.kind == ATElementType.Line:
+                hl = e.r
+                x1 = e.x - hl * math.cos(e.theta)
+                y1 = e.y - hl * math.sin(e.theta)
+                x2 = e.x + hl * math.cos(e.theta)
+                y2 = e.y + hl * math.sin(e.theta)
+                ax.plot([x1, x2], [y1, y2], color="black",
+                        linewidth=5, solid_capstyle="round", zorder=2)
+                ax.plot([x1, x2], [y1, y2], color=color,
+                        linewidth=4, solid_capstyle="round", zorder=3)
+
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
+        ax.set_aspect("equal")
+        from matplotlib.ticker import MaxNLocator as _MNL
+        ax.xaxis.set_major_locator(_MNL(nbins=5))
+        ax.yaxis.set_major_locator(_MNL(nbins=5))
+        ax.set_xlabel("$x$ (m)")
+        ax.set_ylabel("$z$ (m)" if self.config.orientation == "vertical" else "$y$ (m)")
+
+        plt.subplots_adjust(bottom=0.20)
+
+        if has_donor:
+            donor_levels = np.linspace(0, max_conc, 11)
+            sm = plt.cm.ScalarMappable(cmap="Reds", norm=mpl.colors.Normalize(0, max_conc))
+            sm.set_array([])
+            cbar = plt.colorbar(sm, ax=ax, ticks=donor_levels,
+                                label="Electron donor concentration [mg/l]",
+                                location="bottom", pad=0.02, aspect=75)
+            cbar.ax.tick_params(labelsize=14)
+
+        abs_min = abs(min_conc) if has_acceptor else ca
+        acc_levels = np.linspace(-abs_min, 0, 9)
+        sm_acc = plt.cm.ScalarMappable(cmap="Blues_r", norm=mpl.colors.Normalize(-abs_min, 0))
+        sm_acc.set_array([])
+        cbar_a = plt.colorbar(sm_acc, ax=ax, ticks=acc_levels,
+                              label="Electron acceptor concentration [mg/l]",
+                              location="bottom", pad=0.12 if has_donor else 0.02, aspect=75)
+        cbar_a.set_ticklabels([f"{abs(t):.0f}" for t in acc_levels])
+        cbar_a.ax.tick_params(labelsize=14)
+
+        plt.tight_layout()
+
+        filename_suffix: str = self.generate_filename_suffix()
+        input_filename: str = os.path.join(
+            self.run_dir,
+            f"{self.run_index:04d}_input_{filename_suffix}.pdf"
+        )
+        plt.savefig(input_filename)
+        plt.close()
+        print(f"Input plot saved to: {input_filename}")
 
     def plot_result(self):
         max_val: float = np.max(self.result)
@@ -1389,8 +1561,8 @@ class ATSimulation:
         os.makedirs(results_dir, exist_ok=True)
         filename_suffix: str = self.generate_filename_suffix()
         plot_filename: str = os.path.join(
-            results_dir,
-            f"run_{self.run_index:04d}_plot_{filename_suffix}.pdf"
+            self.run_dir,
+            f"{self.run_index:04d}_plot_{filename_suffix}.pdf"
         )
         plt.savefig(plot_filename)
         print(f"Plot saved to: {plot_filename}")
@@ -1589,8 +1761,8 @@ class ATSimulation:
         os.makedirs(results_dir, exist_ok=True)
         filename_suffix: str = self.generate_filename_suffix()
         plot_filename: str = os.path.join(
-            results_dir,
-            f"run_{self.run_index:04d}_quiver_{filename_suffix}.pdf"
+            self.run_dir,
+            f"{self.run_index:04d}_quiver_{filename_suffix}.pdf"
         )
         plt.savefig(plot_filename)
         print(f"Quiver plot saved to: {plot_filename}")

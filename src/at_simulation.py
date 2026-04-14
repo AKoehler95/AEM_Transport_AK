@@ -1360,10 +1360,16 @@ class ATSimulation:
 
     def plot_input(self):
         """
-        Generate an input plot of the source element layout, cropped to the
-        source zone, and save it to the run subdirectory.
+        Generate a dual-panel input plot of the source element layout and save
+        it to the run subdirectory.
+
+        Left panel  — source zone at true scale: x in [0, Ws], full domain
+                      y-extent, equal aspect so circles render correctly.
+        Right panel — full simulation domain overview with the source zone
+                      highlighted as a shaded band.
         """
         import matplotlib.patches as mpatches
+        from matplotlib.gridspec import GridSpec
 
         # Use only the original (non-image, non-zero) elements for the plot
         elements = [e for e in self.config.elements
@@ -1376,101 +1382,134 @@ class ATSimulation:
         concs = [e.c for e in elements]
         max_conc = max(concs)
         min_conc = min(concs)
-        has_donor = max_conc > 0
+        has_donor    = max_conc > 0
         has_acceptor = min_conc < 0
         ca = self.config.ca
 
-        donor_cmap = plt.cm.Reds
+        donor_cmap    = plt.cm.Reds
         acceptor_cmap = plt.cm.Blues_r
         donor_norm = mpl.colors.Normalize(vmin=0, vmax=max_conc if has_donor else 1)
-        acc_norm = mpl.colors.Normalize(vmin=min_conc if has_acceptor else -ca, vmax=0)
+        acc_norm   = mpl.colors.Normalize(vmin=min_conc if has_acceptor else -ca, vmax=0)
 
-        # Tight bounding box around elements with padding
+        bg_color = acceptor_cmap(1.0)
+
+        # Domain extents for the right panel
+        dom_xmin = self.config.dom_xmin
+        dom_xmax = self.config.dom_xmax
+        dom_ymin = self.config.dom_ymin
+        dom_ymax = self.config.dom_ymax
+        orientation = self.config.orientation
+
+        # Infer Ws from the rightmost element edge
         all_x = [e.x for e in elements]
-        all_y = [e.y for e in elements]
         all_r = [e.r for e in elements]
-        r_max = max(all_r)
-        span_x = max(max(all_x) - min(all_x), r_max * 2)
-        span_y = max(max(all_y) - min(all_y), r_max * 2)
-        pad = max(span_x, span_y) * 0.35
-        xmin = min(all_x) - r_max - pad
-        xmax = max(all_x) + r_max + pad
-        ymin = min(all_y) - r_max - pad
-        ymax = max(all_y) + r_max + pad
+        ws      = max(x + r for x, r in zip(all_x, all_r))
+        src_xmin = -0.05 * max(ws, 1e-3)
+        src_xmax =  1.15 * max(ws, 1e-3)
 
-        mpl.rcParams.update({"font.size": 22})
-        fig, ax = plt.subplots(figsize=(16, 9), dpi=300)
-        ax.set_facecolor(acceptor_cmap(1.0))
+        def draw_elements_on(ax, lw=0.8):
+            for e in elements:
+                c_val = e.c
+                if c_val >= 0:
+                    color = donor_cmap(donor_norm(c_val)) if has_donor else donor_cmap(0.5)
+                else:
+                    color = acceptor_cmap(acc_norm(c_val)) if has_acceptor else acceptor_cmap(0.5)
 
-        for e in elements:
-            c_val = e.c
-            if c_val >= 0:
-                color = donor_cmap(donor_norm(c_val)) if has_donor else donor_cmap(0.5)
-            else:
-                color = acceptor_cmap(acc_norm(c_val)) if has_acceptor else acceptor_cmap(0.5)
+                if e.kind == ATElementType.Circle:
+                    ax.add_patch(mpatches.Circle(
+                        (e.x, e.y), e.r,
+                        facecolor=color, edgecolor="black", linewidth=lw, zorder=3
+                    ))
+                elif e.kind == ATElementType.Ellipse:
+                    ax.add_patch(mpatches.Ellipse(
+                        (e.x, e.y),
+                        width=2 * e.r,
+                        height=2 * (e.b if e.b is not None else e.r),
+                        angle=math.degrees(e.theta),
+                        facecolor=color, edgecolor="black", linewidth=lw, zorder=3
+                    ))
+                elif e.kind == ATElementType.Line:
+                    hl = e.r
+                    x1 = e.x - hl * math.cos(e.theta)
+                    y1 = e.y - hl * math.sin(e.theta)
+                    x2 = e.x + hl * math.cos(e.theta)
+                    y2 = e.y + hl * math.sin(e.theta)
+                    ax.plot([x1, x2], [y1, y2], color="black",
+                            linewidth=lw * 5, solid_capstyle="round", zorder=2)
+                    ax.plot([x1, x2], [y1, y2], color=color,
+                            linewidth=lw * 4, solid_capstyle="round", zorder=3)
 
-            if e.kind == ATElementType.Circle:
-                ax.add_patch(mpatches.Circle(
-                    (e.x, e.y), e.r,
-                    facecolor=color, edgecolor="black", linewidth=1.2, zorder=3
-                ))
-            elif e.kind == ATElementType.Ellipse:
-                ax.add_patch(mpatches.Ellipse(
-                    (e.x, e.y),
-                    width=2 * e.r,
-                    height=2 * (e.b if e.b is not None else e.r),
-                    angle=math.degrees(e.theta),
-                    facecolor=color, edgecolor="black", linewidth=1.2, zorder=3
-                ))
-            elif e.kind == ATElementType.Line:
-                hl = e.r
-                x1 = e.x - hl * math.cos(e.theta)
-                y1 = e.y - hl * math.sin(e.theta)
-                x2 = e.x + hl * math.cos(e.theta)
-                y2 = e.y + hl * math.sin(e.theta)
-                ax.plot([x1, x2], [y1, y2], color="black",
-                        linewidth=5, solid_capstyle="round", zorder=2)
-                ax.plot([x1, x2], [y1, y2], color=color,
-                        linewidth=4, solid_capstyle="round", zorder=3)
+        # ── Figure ────────────────────────────────────────────────────────────
+        mpl.rcParams.update({"font.size": 16})
+        fig = plt.figure(figsize=(20, 10), dpi=300)
+        gs  = GridSpec(1, 2, figure=fig, width_ratios=[1, 3], wspace=0.08)
+        ax_src = fig.add_subplot(gs[0])
+        ax_dom = fig.add_subplot(gs[1])
 
-        ax.set_xlim(xmin, xmax)
-        ax.set_ylim(ymin, ymax)
-        ax.set_aspect("equal")
-        from matplotlib.ticker import MaxNLocator as _MNL
-        ax.xaxis.set_major_locator(_MNL(nbins=5))
-        ax.yaxis.set_major_locator(_MNL(nbins=5))
-        ax.set_xlabel("$x$ (m)")
-        ax.set_ylabel("$z$ (m)" if self.config.orientation == "vertical" else "$y$ (m)")
+        # ── Left: source zone ─────────────────────────────────────────────────
+        ax_src.set_facecolor(bg_color)
+        draw_elements_on(ax_src, lw=0.8)
+        ax_src.set_xlim(src_xmin, src_xmax)
+        ax_src.set_ylim(dom_ymin, dom_ymax)
+        ax_src.set_aspect("equal")
+        ax_src.xaxis.set_major_locator(MaxNLocator(nbins=3))
+        ax_src.yaxis.set_major_locator(MaxNLocator(nbins=8))
+        ax_src.set_xlabel("$x$ (m)", fontsize=15)
+        ylabel = "$z$ (m)" if orientation == "vertical" else "$y$ (m)"
+        ax_src.set_ylabel(ylabel, fontsize=15)
+        ax_src.set_title("Source zone", fontsize=14, pad=4)
+        ax_src.axvline(x=0.0, color="gold", linewidth=1.2, linestyle="--", zorder=4)
+        ax_src.axvline(x=ws,  color="gold", linewidth=1.2, linestyle="--", zorder=4)
+        ax_src.text(0.98, 0.99, f"Ws = {ws:.3f} m",
+                    transform=ax_src.transAxes, ha="right", va="top",
+                    fontsize=10, color="goldenrod",
+                    bbox=dict(facecolor="white", alpha=0.4, boxstyle="round,pad=0.2"))
 
-        plt.subplots_adjust(bottom=0.20)
+        # ── Right: full domain overview ────────────────────────────────────────
+        ax_dom.set_facecolor(bg_color)
+        ax_dom.axvspan(0.0, ws, color="gold", alpha=0.18, zorder=1,
+                       label=f"Source zone (x ≤ {ws:.3f} m)")
+        draw_elements_on(ax_dom, lw=0.5)
+        ax_dom.set_xlim(dom_xmin, dom_xmax)
+        ax_dom.set_ylim(dom_ymin, dom_ymax)
+        ax_dom.xaxis.set_major_locator(MaxNLocator(nbins=7))
+        ax_dom.yaxis.set_major_locator(MaxNLocator(nbins=8))
+        ax_dom.set_xlabel("$x$ (m)", fontsize=15)
+        ax_dom.set_yticklabels([])
+        ax_dom.set_title("Full simulation domain", fontsize=14, pad=4)
+        ax_dom.legend(loc="upper right", fontsize=11, framealpha=0.6)
+
+        # ── Shared colorbars ──────────────────────────────────────────────────
+        fig.subplots_adjust(bottom=0.18)
 
         if has_donor:
             donor_levels = np.linspace(0, max_conc, 11)
-            sm = plt.cm.ScalarMappable(cmap="Reds", norm=mpl.colors.Normalize(0, max_conc))
-            sm.set_array([])
-            cbar = plt.colorbar(sm, ax=ax, ticks=donor_levels,
-                                label="Electron donor concentration [mg/l]",
-                                location="bottom", pad=0.02, aspect=75)
-            cbar.ax.tick_params(labelsize=14)
+            sm_d = plt.cm.ScalarMappable(cmap="Reds",
+                                          norm=mpl.colors.Normalize(0, max_conc))
+            sm_d.set_array([])
+            cb_d = fig.colorbar(sm_d, ax=[ax_src, ax_dom], ticks=donor_levels,
+                                 label="Electron donor concentration [mg/l]",
+                                 location="bottom", pad=0.02, aspect=60)
+            cb_d.ax.tick_params(labelsize=11)
 
-        abs_min = abs(min_conc) if has_acceptor else ca
+        abs_min    = abs(min_conc) if has_acceptor else ca
         acc_levels = np.linspace(-abs_min, 0, 9)
-        sm_acc = plt.cm.ScalarMappable(cmap="Blues_r", norm=mpl.colors.Normalize(-abs_min, 0))
-        sm_acc.set_array([])
-        cbar_a = plt.colorbar(sm_acc, ax=ax, ticks=acc_levels,
-                              label="Electron acceptor concentration [mg/l]",
-                              location="bottom", pad=0.12 if has_donor else 0.02, aspect=75)
-        cbar_a.set_ticklabels([f"{abs(t):.0f}" for t in acc_levels])
-        cbar_a.ax.tick_params(labelsize=14)
-
-        plt.tight_layout()
+        sm_a = plt.cm.ScalarMappable(cmap="Blues_r",
+                                      norm=mpl.colors.Normalize(-abs_min, 0))
+        sm_a.set_array([])
+        cb_a = fig.colorbar(sm_a, ax=[ax_src, ax_dom], ticks=acc_levels,
+                             label="Electron acceptor concentration [mg/l]",
+                             location="bottom",
+                             pad=0.10 if has_donor else 0.02, aspect=60)
+        cb_a.set_ticklabels([f"{abs(t):.0f}" for t in acc_levels])
+        cb_a.ax.tick_params(labelsize=11)
 
         filename_suffix: str = self.generate_filename_suffix()
         input_filename: str = os.path.join(
             self.run_dir,
             f"{self.run_index:04d}_input_{filename_suffix}.pdf"
         )
-        plt.savefig(input_filename)
+        plt.savefig(input_filename, bbox_inches="tight")
         plt.close()
         print(f"Input plot saved to: {input_filename}")
 
@@ -1637,7 +1676,7 @@ class ATSimulation:
             colors="k",
         )
 
-        # --- Donor and acceptor proxies ---
+        # Donor and acceptor proxies
         Cnet = self.result
         C_donor = np.where(Cnet > 0.0, Cnet, 0.0)
         C_acceptor = np.where(Cnet < 0.0, -Cnet, 0.0)  # magnitude below zero
@@ -1673,7 +1712,7 @@ class ATSimulation:
 
         tiny = 1e-12
 
-        # --- Donor flux scaling and colouring ---
+        # Donor flux scaling and colouring
         mag_d = np.hypot(U_dq, V_dq)
         mag_d = np.where(mag_d < tiny, 0.0, mag_d)
         max_mag_d = float(np.nanmax(mag_d)) if np.any(mag_d > 0.0) else 0.0
@@ -1686,7 +1725,7 @@ class ATSimulation:
             U_dq[:] = 0.0
             V_dq[:] = 0.0
 
-        # --- Acceptor flux scaling and colouring ---
+        # Acceptor flux scaling and colouring
         mag_a = np.hypot(U_aq, V_aq)
         mag_a = np.where(mag_a < tiny, 0.0, mag_a)
         max_mag_a = float(np.nanmax(mag_a)) if np.any(mag_a > 0.0) else 0.0

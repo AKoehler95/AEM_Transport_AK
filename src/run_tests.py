@@ -209,7 +209,7 @@ def run_one(config_path):
             thread_exc[0] = e
 
     t0 = time.time()
-    t = threading.Thread(target=worker, daemon=True)
+    t = threading.Thread(target=worker)
     t.start()
     t.join(timeout=TEST_TIMEOUT)
 

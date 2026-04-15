@@ -28,7 +28,7 @@ from datetime import datetime
 
 # Paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_DIR  = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SCRIPT_DIR, "configs_v7")
+CONFIG_DIR  = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SCRIPT_DIR, "configs_v8")
 RESULTS_DIR = os.path.join(SCRIPT_DIR, "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 

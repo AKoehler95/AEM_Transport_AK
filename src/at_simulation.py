@@ -11,6 +11,8 @@ import os
 
 # External library:
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.pyplot as plt_temp
 import matplotlib as mpl

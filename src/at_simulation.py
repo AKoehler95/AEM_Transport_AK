@@ -1,5 +1,23 @@
 # Written by Willi Kappler, willi.kappler@uni-tuebingen.de
 # Based on code from Anton Köhler
+"""
+AEM Transport Simulation — main simulation class and supporting functions.
+
+This module implements the Analytic Element Method (AEM) transport model for
+simulating steady-state contaminant plumes in groundwater. The core workflow is:
+
+  1. Load a configuration of source elements (circles, lines, ellipses)
+  2. For vertical orientation, add mirror images and zero-isoline elements
+     to enforce the water-table boundary condition
+  3. Solve a least-squares system for Mathieu function expansion coefficients
+     that satisfy the prescribed concentration on each element's boundary
+  4. Evaluate the concentration field on a grid across the domain
+  5. Post-process: find L_max (plume length), validate, plot, save results
+
+The module uses multiprocessing to parallelize the grid evaluation and
+vectorized Mathieu function calls to amortize numpy overhead across all
+expansion orders simultaneously.
+"""
 
 # Python std library:
 import math
@@ -8,11 +26,13 @@ from datetime import timedelta
 import logging
 import json
 import os
+import sys
+import platform
 
 # External library:
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Agg')  # non-interactive backend — required for headless test runs
 import matplotlib.pyplot as plt
 import matplotlib.pyplot as plt_temp
 import matplotlib as mpl
@@ -27,6 +47,11 @@ from at_element import ATElement, ATElementType
 
 logger = logging.getLogger(__name__)
 
+# Shared state for multiprocessing workers
+# These module-level globals are populated in each worker process via
+# _init_pool(). They allow _compute_point_shared() to access simulation
+# state without pickling it on every task — which would be prohibitively
+# expensive for 50k+ grid points.
 _shared_elements = None
 _shared_coeff = None
 _shared_num_terms = None
@@ -38,30 +63,14 @@ _shared_gamma = None
 
 def _init_pool(elements, coeff, num_terms, alpha_l, alpha_t, beta, ca, gamma):
     """
-    Initializes shared variables for worker processes in the multiprocessing pool.
+    Pool initializer that copies simulation state into each worker process.
 
-    Parameters
-    ----------
-    elements : list
-        List of ATElement objects.
-    coeff : array_like
-        Flattened coefficient array.
-    num_terms : int
-        Number of Mathieu function terms.
-    alpha_l : float
-        Longitudinal dispersivity.
-    alpha_t : float
-        Transverse dispersivity.
-    beta : float
-        Exponential decay coefficient.
-    ca : float
-        Acceptor concentration threshold.
-    gamma : float
-        Stoichiometric ratio.
+    Called once per worker at pool startup (not once per task). The state
+    then stays resident in the worker for the lifetime of the pool, so
+    individual task dispatches only need to pass the (x, y) coordinates.
     """
     global _shared_elements, _shared_coeff, _shared_num_terms
     global _shared_alpha_l, _shared_alpha_t, _shared_beta, _shared_ca, _shared_gamma
-
     _shared_elements = elements
     _shared_coeff = coeff
     _shared_num_terms = num_terms
@@ -74,18 +83,11 @@ def _init_pool(elements, coeff, num_terms, alpha_l, alpha_t, beta, ca, gamma):
 
 def _compute_point_shared(args):
     """
-     Computes concentration at a point using shared variables.
+    Worker-side entry point for the multiprocessing pool.
 
-     Parameters
-     ----------
-     args : tuple
-         (x, y) coordinates.
-
-     Returns
-     -------
-     float
-         Concentration at the given point.
-     """
+    Unpacks the (x, y) coordinates and delegates to _compute_point using
+    the shared state that was set by _init_pool at worker startup.
+    """
     x, y = args
     return _compute_point((
         x, y, _shared_elements, _shared_coeff,
@@ -96,21 +98,28 @@ def _compute_point_shared(args):
 
 def _compute_point(args):
     """
-    Computes the concentration at a single (x, y) point.
+    Evaluate the concentration field at a single (x, y) point.
 
-    Parameters
-    ----------
-    args : tuple
-        Contains x, y coordinates and all necessary parameters
-        for evaluating the concentration field.
+    Sums contributions from every element's Mathieu function expansion,
+    applies the exp(beta*x) advection term, and maps the transformed
+    field to concentration using the donor/acceptor reaction stoichiometry:
+      - Above the reaction threshold (F > ca): donor regime, C = (F - ca) / gamma
+      - Below the threshold (F <= ca): acceptor regime, C = F - ca
 
-    Returns
-    -------
-    float
-        Calculated concentration at the point.
+    Points that fall inside a source element are clamped to the element's
+    prescribed concentration (elem.c), overriding the Mathieu expansion.
+    This handles both circles and ellipses via point-in-region tests.
+
+    The Mathieu function calls are vectorized over the expansion order
+    (ce(0:n, psi), Ke(0:n, eta), etc.) since the library's overhead per
+    call dominates the underlying numerics for small n.
     """
     x, y, elements, coeff, num_terms, alpha_l, alpha_t, beta, ca, gamma = args
     total_terms = 2 * num_terms - 1
+
+    # Precompute order arrays once — reused across all elements
+    orders_all = np.arange(num_terms)
+    orders_odd = np.arange(1, num_terms) if num_terms > 1 else np.array([], dtype=int)
 
     F = 0.0
     for idx, elem in enumerate(elements):
@@ -120,20 +129,28 @@ def _compute_point(args):
 
         block = coeff[idx * total_terms: (idx + 1) * total_terms]
 
-        Fi = block[0] * elem.m.ce(0, psi).real * elem.m.Ke(0, eta).real
+        # Batch all Mathieu orders into a single call each
+        ce_vals = elem.m.ce(orders_all, psi).real
+        Ke_vals = elem.m.Ke(orders_all, eta).real
 
-        for j in range(1, num_terms):
-            Fi += block[2*j - 1] * elem.m.se(j, psi).real * elem.m.Ko(j, eta).real
-            Fi += block[2*j    ] * elem.m.ce(j, psi).real * elem.m.Ke(j, eta).real
+        Fi = block[0] * ce_vals[0] * Ke_vals[0]
+
+        if num_terms > 1:
+            se_vals = elem.m.se(orders_odd, psi).real
+            Ko_vals = elem.m.Ko(orders_odd, eta).real
+            for j in range(1, num_terms):
+                Fi += block[2*j - 1] * se_vals[j-1] * Ko_vals[j-1]
+                Fi += block[2*j    ] * ce_vals[j]   * Ke_vals[j]
 
         F += Fi
 
-    total = F * np.exp(beta * x)
+    total = F * math.exp(beta * x)
     if total > ca:
         conc = (total - ca) / gamma
     else:
         conc = total - ca
 
+    # Clamp interior points to the prescribed element concentration
     for elem in elements:
         dx = x - elem.x
         dy = y - elem.y
@@ -142,12 +159,11 @@ def _compute_point(args):
                 conc = elem.c
                 break
         if elem.kind == ATElementType.Ellipse:
-            # Point-in-rotated-ellipse: ((x')/a)^2 + ((y')/b)^2 <= 1
             a = float(elem.r)
             b = float(elem.b if elem.b is not None else elem.r)
-            cθ, sθ = math.cos(elem.theta), math.sin(elem.theta)
-            xp =  cθ * dx + sθ * dy
-            yp = -sθ * dx + cθ * dy
+            ctheta, stheta = math.cos(elem.theta), math.sin(elem.theta)
+            xp =  ctheta * dx + stheta * dy
+            yp = -stheta * dx + ctheta * dy
             if (xp*xp) / (a*a) + (yp*yp) / (b*b) <= 1.0:
                 conc = elem.c
                 break
@@ -157,79 +173,107 @@ def _compute_point(args):
 
 def create_mirrored_element(elem):
     """
-    Creates a mirrored image of an ATElement across the x-axis.
+    Return a mirror image of an element reflected across the water table (y=0).
 
-    Parameters
-    ----------
-    elem : ATElement
-        Original element to be mirrored.
-
-    Returns
-    -------
-    ATElement
-        Mirrored element with flipped y and concentration.
+    Used in vertical orientation to enforce the no-flux boundary condition at
+    the surface. The image has y → -y, c → -c, and theta → -theta (for lines
+    and ellipses). For circles, theta is set to pi/2 as a canonical value.
     """
     if elem.kind == ATElementType.Line:
-        return ATElement(
-            kind=elem.kind,
-            x=elem.x,
-            y=-elem.y,
-            c=-elem.c,
-            r=elem.r,
-            theta=-elem.theta
-        )
+        return ATElement(kind=elem.kind, x=elem.x, y=-elem.y,
+                         c=-elem.c, r=elem.r, theta=-elem.theta)
     elif elem.kind == ATElementType.Ellipse:
-        return ATElement(
-            kind=elem.kind,
-            x=elem.x,
-            y=-elem.y,
-            c=-elem.c,
-            r=elem.r,
-            theta=-elem.theta,
-            b=elem.b
-        )
-    else:  # Circle
-        return ATElement(
-            kind=elem.kind,
-            x=elem.x,
-            y=-elem.y,
-            c=-elem.c,
-            r=elem.r,
-            theta=math.pi / 2
-        )
+        return ATElement(kind=elem.kind, x=elem.x, y=-elem.y,
+                         c=-elem.c, r=elem.r, theta=-elem.theta, b=elem.b)
+    else:
+        return ATElement(kind=elem.kind, x=elem.x, y=-elem.y,
+                         c=-elem.c, r=elem.r, theta=math.pi / 2)
+
 
 def create_zero_isoline(elem: ATElement) -> ATElement:
     """
-    Create a horizontal (theta=0) line element on the isoline (y=0) that enforces
-    C = 0 between x in [elem.x - elem.r, elem.x + elem.r].
+    Return a horizontal line element on y=0 that enforces C=0 along the
+    surface above the source.
 
-    Notes
-    -----
-    - For line sources, `r` is the half-length, so this has the same length.
-    - For circles, we use the circle radius as half-length, so the isoline span is 2r.
+    Used in vertical orientation in combination with the mirrored image
+    elements. The image pair handles the no-flux condition; the zero-isoline
+    pins the concentration to zero on the surface directly above the source,
+    preventing the solution from drifting along the water table.
+
+    The isoline shares the source's x-position and half-length (r) so it
+    covers the same horizontal extent.
     """
-    return ATElement(
-        kind=ATElementType.Line,
-        x=elem.x,
-        y=0.0,
-        c=0.0,          # enforce zero concentration on the isoline segment
-        r=elem.r,       # same half-length/radius as the input element
-        theta=0.0       # horizontal along the isoline y=0
-    )
+    return ATElement(kind=ATElementType.Line, x=elem.x, y=0.0,
+                     c=0.0, r=elem.r, theta=0.0)
 
+
+# Timing helper
+class _PhaseTimer:
+    """
+    Accumulates elapsed time for named simulation phases.
+
+    Supports nested timing via a stack of (name, start_time) entries.
+    Calling start(name) pushes a new timing entry; stop() pops the most
+    recent entry and adds its elapsed time to phases[name]. If the same
+    name is started multiple times, the times accumulate — useful for
+    phases like conc_array that may run more than once (e.g., when the
+    domain is dynamically extended).
+    """
+    def __init__(self):
+        self.phases = {}
+        self._stack = []
+
+    def start(self, name):
+        self._stack.append((name, timeit.default_timer()))
+
+    def stop(self):
+        if self._stack:
+            name, t0 = self._stack.pop()
+            elapsed = timeit.default_timer() - t0
+            self.phases[name] = self.phases.get(name, 0.0) + elapsed
+            return elapsed
+        return 0.0
+
+    def report(self):
+        total = sum(self.phases.values())
+        lines = ["\n=== PHASE TIMING REPORT ==="]
+        for name, elapsed in self.phases.items():
+            pct = (elapsed / total * 100) if total > 0 else 0
+            lines.append(f"  {name:<35} {elapsed:8.2f}s  ({pct:5.1f}%)")
+        lines.append(f"  {'TOTAL':<35} {total:8.2f}s")
+        return "\n".join(lines)
 
 
 class ATSimulation:
-    def __init__(self, config: ATConfiguration):
-        """
-        Initialise the simulation with a configuration object.
+    """
+    Orchestrator for an AEM transport simulation.
 
-        Parameters
-        ----------
-        config : ATConfiguration
-            Parsed simulation configuration containing elements, domain
-            bounds, dispersivities, and all physical parameters.
-        """
+    Holds the configuration, solved coefficient vector, computed concentration
+    grid, and post-processing outputs (L_max, interface length, plots).
+    A single run is driven by the run() method which executes the full
+    pipeline from setup through saving plots.
+
+    Attributes
+    ----------
+    config : ATConfiguration
+        All physical parameters, element definitions, and domain extents.
+    coeff : np.ndarray
+        Flat coefficient vector from solve_system. Length = num_elements *
+        (2 * num_terms - 1). Indexed as coeff[i*total_terms:(i+1)*total_terms]
+        for element i.
+    xaxis, yaxis : np.ndarray
+        1D coordinate arrays for the evaluation grid.
+    result : np.ndarray
+        2D concentration grid with shape (len(yaxis), len(xaxis)).
+    L_max : int or None
+        Furthest x-extent of the 0-concentration contour, in meters.
+    interface_length : float or None
+        Total polyline length of the 0-contour, in meters.
+    timer : _PhaseTimer
+        Accumulates elapsed time per pipeline phase.
+    """
+
+    def __init__(self, config: ATConfiguration):
         self.config: ATConfiguration = config
         self.coeff: np.ndarray = np.zeros((10, 10))
         self.xaxis: np.ndarray = np.arange(0, 10, 1)
@@ -237,20 +281,36 @@ class ATSimulation:
         self.result: np.ndarray = np.zeros((10, 10))
         self.L_max = None
         self.interface_length = None
+        self.timer = _PhaseTimer()
 
     def run(self):
         """
-        Execute the full simulation pipeline.
+        Execute the full simulation pipeline end-to-end.
 
-        Steps: validates elements, mirrors them for vertical orientation,
-        solves the Mathieu expansion coefficient system, computes the
-        concentration array in parallel, then generates plots, statistics,
-        and result files saved under Results/<run_index>/.
+        Pipeline stages:
+          1. Element setup — for vertical orientation, adds mirror images
+             and a zero-isoline element for water-table boundary conditions.
+             Computes each element's Mathieu parameter q and outline points.
+          2. solve_system — least-squares fit of expansion coefficients to
+             match prescribed concentrations on all element boundaries.
+          3. conc_array — parallel evaluation of the concentration field on
+             the domain grid.
+          4. Dynamic domain extension — if the plume reaches the x-boundary,
+             extends dom_xmax and recomputes. Repeats up to MAX_EXTENSIONS
+             times. Avoids wasting a full fine-grid pass on an undersized
+             domain.
+          5. Post-processing — L_max calculation, domain and concentration
+             range checks.
+          6. Output — input plot, statistics file, error plot, result plot,
+             all saved under Results/<run_index>/.
         """
         if len(self.config.elements) < 1:
             raise ValueError("Simulation requires at least one element.")
 
+        self.timer.start("element_setup")
         if self.config.orientation == "vertical":
+            # Build the full element list: each source gets a mirror image,
+            # and a single shared zero-isoline is added at the end.
             updated_elements = []
             for elem in self.config.elements:
                 if elem.y > -(elem.r*np.sin(elem.theta)+0.1):
@@ -265,235 +325,214 @@ class ATSimulation:
             self.config.elements = updated_elements
             self.config.dom_ymax = 0
 
-        start: float = timeit.default_timer()
+        alpha_t = self.config.alpha_t
+        alpha_l = self.config.alpha_l
+        beta = self.config.beta
+        gamma = self.config.gamma
+        ca = self.config.ca
+        n = self.config.num_terms
+        M = self.config.num_cp
 
-        alpha_t: float = self.config.alpha_t
-        alpha_l: float = self.config.alpha_l
-        beta: float = self.config.beta
-        gamma: float = self.config.gamma
-        ca: float = self.config.ca
-        n: int = self.config.num_terms
-        M: int = self.config.num_cp
-
-        # update all elems
         for elem in self.config.elements:
             elem.calc_d_q(alpha_t, alpha_l, beta)
             elem.set_outline(M)
+        self.timer.stop()
 
+        self.timer.start("solve_system")
         self.solve_system(alpha_l, alpha_t, beta, gamma, ca, n, M)
+        self.timer.stop()
 
-        # print("Coefficients:")
-        # print(self.coeff)
-
+        self.timer.start("conc_array")
         self.conc_array(self.config.dom_xmin, self.config.dom_ymin,
                         self.config.dom_xmax, self.config.dom_ymax,
                         self.config.dom_inc)
+        self.timer.stop()
 
-        # print(self.result_tuple[0])
-        # print(self.result_tuple[1])
-        # print(self.result_tuple[2])
-
-        stop: float = timeit.default_timer()
-        cpu_time = timedelta(seconds=int(stop - start))
-        print(f"Computation time [hh:mm:ss]: {cpu_time}")
-
+        # Extend the domain iteratively until the plume fits, or until
+        # MAX_EXTENSIONS is reached. Each extension adds 50% beyond the
+        # current L_max and triggers a fresh grid computation.
+        MAX_EXTENSIONS = 3
+        self.timer.start("calculate_lmax")
         self.calculate_lmax()
+
+        for ext_round in range(MAX_EXTENSIONS):
+            if self.L_max is None:
+                break
+            domain_width = self.config.dom_xmax - self.config.dom_xmin
+            max_x_dist = self.L_max - self.config.dom_xmin
+            if max_x_dist < 0.90 * domain_width:
+                break  # plume fits
+
+            new_xmax = self.L_max + 0.5 * max(self.L_max, domain_width)
+            print(f"Dynamic domain extension #{ext_round+1}: "
+                  f"dom_xmax {self.config.dom_xmax:.0f} -> {new_xmax:.0f} m  "
+                  f"(L_max={self.L_max})")
+            self.config.dom_xmax = new_xmax
+            self.timer.stop()
+
+            self.timer.start(f"conc_array_ext{ext_round+1}")
+            self.conc_array(self.config.dom_xmin, self.config.dom_ymin,
+                            self.config.dom_xmax, self.config.dom_ymax,
+                            self.config.dom_inc)
+            self.timer.stop()
+
+            self.timer.start("calculate_lmax")
+            self.calculate_lmax()
+
         self.check_domain_adequacy()
         self.check_concentration_range()
+        self.timer.stop()
 
         results_dir = os.path.join("Results")
         os.makedirs(results_dir, exist_ok=True)
         self.run_index = self.get_next_run_index(results_dir)
-
-        # Create a dedicated subdirectory for this run: Results/0001/
         self.run_dir = os.path.join(results_dir, f"{self.run_index:04d}")
         os.makedirs(self.run_dir, exist_ok=True)
 
+        self.timer.start("plot_input")
         self.plot_input()
+        self.timer.stop()
+
+        self.timer.start("print_statistics")
+        cpu_time = timedelta(seconds=int(sum(self.timer.phases.values())))
         self.print_statistics(cpu_time)
+        self.timer.stop()
+
+        self.timer.start("plot_result")
         self.plot_result()
-        #self.plot_quiver()
+        self.timer.stop()
+
+        # Print timing report
+        print(self.timer.report())
+
+    # Coupling / decoupling helpers
 
     @staticmethod
     def _ke_log_magnitude(q: float, eta: float) -> float:
         """
-        Estimate log10 of |Ke_0(eta)| for the given q.
+        Estimate log10 |Ke_0(eta)| for a given Mathieu parameter q.
 
-        The leading-order behavior of Ke_0 is dominated by the
-        K-Bessel factor:
-            Ke_0(eta) ~ exp(-sqrt(q) * exp(eta))
+        Uses the leading-order asymptotic behavior of the radial Mathieu
+        function:   Ke_0(eta) ~ exp(-sqrt(q) * exp(eta))
+        and returns its base-10 logarithm.
 
-        This returns log10 of that estimate, i.e.:
-            -sqrt(q) * exp(eta) / ln(10)
+        Used as a cheap proxy for how strongly element j's basis functions
+        contribute at element i's location. When log|Ke| < ~-14, the
+        contribution is at or below double-precision machine epsilon and
+        the elements can be treated as decoupled for solving purposes.
 
-        A value of -16 means Ke is at double-precision machine epsilon.
-        A value of -30 means it is far below.
-
-        Parameters
-        ----------
-        q : float
-            Mathieu parameter (positive).
-        eta : float
-            Radial elliptic coordinate.
-
-        Returns
-        -------
-        float
-            Approximate log10(|Ke_0(eta, q)|).
+        For q=0: returns 0 (near-source region where Ke is O(1)).
         """
         if q <= 0.0 or eta <= 0.0:
-            return 0.0  # near the source, Ke is O(1)
+            return 0.0
         return -math.sqrt(q) * math.exp(eta) / math.log(10.0)
 
-    def _are_elements_coupled(self, e_i: ATElement, e_j: ATElement,
-                              alpha_l: float, alpha_t: float,
-                              log10_floor: float = -14.0) -> bool:
+    def _are_elements_coupled(self, e_i, e_j, alpha_l, alpha_t,
+                              log10_floor=-14.0):
         """
-        Determine whether two elements are close enough that cross-terms
-        in the coefficient matrix are numerically significant.
+        Test whether two elements are close enough that cross-terms between
+        them are numerically significant.
 
-        Evaluates the actual estimated magnitude of Ke_0(eta, q) for each
-        element's q value. If Ke is below 10^(log10_floor) in both directions,
-        the cross-terms are negligible and the elements should be
-        decoupled.
-
-        The q-dependent criterion is essential because the decay rate
-        of Ke_n(eta) depends on sqrt(q):
-            Ke_0(eta) ~ exp(-sqrt(q) * exp(eta))
-        For small q (e.g., q=0.14), Ke reaches machine epsilon at
-        eta ~ 4.6, while for large q (e.g., q=100), this happens
-        at eta ~ 1.3.
-
-        Parameters
-        ----------
-        e_i, e_j : ATElement
-            The two elements to test.
-        alpha_l, alpha_t : float
-            Dispersivities (needed for the coordinate transform).
-        log10_floor : float
-            Decoupling threshold as log10(|Ke|). Default -14.0 means
-            elements are decoupled when Ke < 1e-14 (~ 100x above
-            machine epsilon, providing a safety margin).
-
-        Returns
-        -------
-        bool
-            True if elements should be solved together (coupled),
-            False if they should be solved independently.
+        Computes |Ke| in both directions (e_i's basis evaluated at e_j's
+        center, and vice versa) and returns True if either magnitude exceeds
+        10^log10_floor. The q-dependent criterion matters because Ke's
+        decay rate is sqrt(q)-dependent: for small q, Ke stays significant
+        out to larger eta than for large q.
         """
         if e_i is e_j:
             return True
-
-        # eta from center of e_i in e_j's coordinate system
         dx_ij = e_i.x - e_j.x
         dy_ij = e_i.y - e_j.y
         eta_ij, _ = e_j.uv(dx_ij, dy_ij, alpha_l, alpha_t)
-        # Ke magnitude when evaluating e_j's basis functions at e_i's location
         log_ke_j = self._ke_log_magnitude(e_j.q, eta_ij)
-
-        # eta from center of e_j in e_i's coordinate system
         dx_ji = e_j.x - e_i.x
         dy_ji = e_j.y - e_i.y
         eta_ji, _ = e_i.uv(dx_ji, dy_ji, alpha_l, alpha_t)
-        # Ke magnitude when evaluating e_i's basis functions at e_j's location
         log_ke_i = self._ke_log_magnitude(e_i.q, eta_ji)
-
-        # Elements are coupled if EITHER direction has significant cross-terms
         coupled = max(log_ke_i, log_ke_j) > log10_floor
-
-        logger.info(f"  Coupling test: elem({e_i.x},{e_i.y}) <-> elem({e_j.x},{e_j.y}): "
-                     f"eta_ij={eta_ij:.2f}, eta_ji={eta_ji:.2f}, "
-                     f"log10|Ke_j|={log_ke_j:.1f}, log10|Ke_i|={log_ke_i:.1f}, "
-                     f"q_i={e_i.q:.4f}, q_j={e_j.q:.4f} -> "
+        logger.info(f"  Coupling: ({e_i.x},{e_i.y})<->({e_j.x},{e_j.y}): "
+                     f"log|Ke|={max(log_ke_i, log_ke_j):.1f} -> "
                      f"{'COUPLED' if coupled else 'DECOUPLED'}")
-
         return coupled
 
-    def _find_coupling_groups(self, elements: list, alpha_l: float,
-                              alpha_t: float) -> list:
+    def _find_coupling_groups(self, elements, alpha_l, alpha_t):
         """
-        Partition elements into coupling groups using a union-find approach.
+        Partition elements into connected components of "coupled" elements
+        using a union-find algorithm.
 
-        Elements within the same group are close enough to influence each
-        other's coefficient solve and must be solved together (coupled).
-        Elements in different groups are too far apart for cross-terms to
-        matter and are solved independently.
-
-        The coupling criterion is q-dependent: it uses the estimated
-        magnitude of Ke_0(eta, q) rather than a fixed eta threshold.
-
-        Parameters
-        ----------
-        elements : list of ATElement
-        alpha_l, alpha_t : float
-
-        Returns
-        -------
-        list of list of int
-            Each inner list contains the indices of elements in one group.
+        Two elements are coupled if _are_elements_coupled returns True.
+        Elements within the same group must be solved together; elements
+        in different groups can be solved independently. Returns a list
+        of groups, each a list of element indices.
         """
         ne = len(elements)
         parent = list(range(ne))
-
         def find(x):
             while parent[x] != x:
                 parent[x] = parent[parent[x]]
                 x = parent[x]
             return x
-
         def union(a, b):
             ra, rb = find(a), find(b)
             if ra != rb:
                 parent[ra] = rb
-
         for i in range(ne):
             for j in range(i + 1, ne):
                 if self._are_elements_coupled(elements[i], elements[j],
                                               alpha_l, alpha_t):
                     union(i, j)
-
         groups = {}
         for i in range(ne):
-            root = find(i)
-            groups.setdefault(root, []).append(i)
-
+            groups.setdefault(find(i), []).append(i)
         return list(groups.values())
 
-    def _build_group_system(self, group_indices: list, elements: list,
-                            alpha_l: float, alpha_t: float, beta: float,
-                            ca: float, gamma: float, n: int,
-                            cross_term_floor: float = 1e-250) -> tuple:
+    # Matrix building (vectorized Mathieu)
+
+    def build_row(self, elem, eta, psi, n):
         """
-        Build the coefficient matrix A and RHS vector b for a group
-        of coupled elements.
+        Build one element's contribution to a coefficient-matrix row.
 
-        Cross-element entries where all Ke/Ko values are below
-        cross_term_floor are zeroed out to prevent near-zero entries
-        from polluting the matrix.
+        Returns a list of length (2n - 1) containing the Mathieu basis
+        function products at the given (eta, psi):
+          [ce_0*Ke_0, se_1*Ko_1, ce_1*Ke_1, se_2*Ko_2, ce_2*Ke_2, ...]
 
-        Parameters
-        ----------
-        group_indices : list of int
-            Indices into the elements list for this coupling group.
-        elements : list of ATElement
-            Full element list.
-        alpha_l, alpha_t, beta, ca, gamma : float
-            Physical parameters.
-        n : int
-            Number of Mathieu function terms.
-        cross_term_floor : float
-            Entries smaller than this are zeroed. Default 1e-250 is
-            generous; anything below ~1e-300 is noise.
+        The full matrix row for a given control point is built by
+        concatenating these per-element blocks.
+        """
+        orders_all = np.arange(n)
+        ce_vals = elem.m.ce(orders_all, psi).real
+        Ke_vals = elem.m.Ke(orders_all, eta).real
 
-        Returns
-        -------
-        A : np.ndarray, shape (num_rows, num_cols)
-        b : np.ndarray, shape (num_rows,)
+        row = [ce_vals[0] * Ke_vals[0]]
+        if n > 1:
+            orders_odd = np.arange(1, n)
+            se_vals = elem.m.se(orders_odd, psi).real
+            Ko_vals = elem.m.Ko(orders_odd, eta).real
+            for j in range(1, n):
+                row.append(se_vals[j-1] * Ko_vals[j-1])
+                row.append(ce_vals[j]   * Ke_vals[j])
+        return row
+
+    def _build_group_system(self, group_indices, elements,
+                            alpha_l, alpha_t, beta, ca, gamma, n,
+                            cross_term_floor=1e-250):
+        """
+        Assemble the least-squares matrix A and RHS vector b for a group
+        of elements.
+
+        For each control point on each element in the group (rows), evaluates
+        every group element's basis functions (columns) and the prescribed
+        boundary condition (RHS entry).
+
+        Cross-element blocks whose entries are all below cross_term_floor
+        are zeroed out — these are contributions from distant elements that
+        are numerically negligible and would only introduce noise.
+
+        Self-element blocks along the diagonal use eta=0 for line elements
+        (which is the line's own surface in its local coordinates).
         """
         group_elements = [elements[k] for k in group_indices]
-        ng = len(group_elements)
         total_terms = 2 * n - 1
-
         A_rows = []
         b_vec = []
 
@@ -509,11 +548,9 @@ class ATSimulation:
                         eta = 0.0
                     else:
                         eta = eta_j
-                    psi = psi_j
 
-                    block = self.build_row(e_j, eta, psi, n)
+                    block = self.build_row(e_j, eta, psi_j, n)
 
-                    # Zero out cross-element entries that are below machine noise
                     if i_local != j_local:
                         max_abs = max(abs(v) for v in block)
                         if max_abs < cross_term_floor:
@@ -526,228 +563,128 @@ class ATSimulation:
 
         return np.array(A_rows), np.array(b_vec)
 
-    def _solve_scaled_lstsq(self, A: np.ndarray, b: np.ndarray,
-                            rcond: float = 1e-10) -> tuple:
+    def _solve_scaled_lstsq(self, A, b, rcond=1e-10):
         """
-        Solve the least-squares system with row scaling for numerical stability.
+        Solve A @ x = b in the least-squares sense with row scaling.
 
-        Returns
-        -------
-        (coeffs, cond_number)
-            coeffs: np.ndarray, shape (n,)
-            cond_number: float, condition number of the scaled matrix
+        Each row of A is divided by its max-abs value before solving, and
+        the corresponding b entry is scaled to match. This prevents rows
+        with very different magnitudes (which arise naturally when mixing
+        near-source and far-field control points) from dominating the
+        least-squares residual.
+
+        Returns (coeffs, condition_number). The condition number is taken
+        as the ratio of largest to smallest singular value of the scaled
+        matrix.
         """
         row_scales = np.max(np.abs(A), axis=1)
         row_scales = np.where(row_scales < 1e-300, 1.0, row_scales)
-
         A_scaled = A / row_scales[:, None]
         b_scaled = b / row_scales
-
         coeffs, residuals, rank, sv = np.linalg.lstsq(A_scaled, b_scaled, rcond=rcond)
-
         cond = np.inf
         if sv is not None and len(sv) > 0:
             cond = sv[0] / sv[-1] if sv[-1] > 0 else np.inf
-            logger.info(f"  lstsq: rank={rank}, cond={cond:.2e}, "
-                        f"sv_max={sv[0]:.2e}, sv_min={sv[-1]:.2e}")
-
         return coeffs, cond
 
-    def _evaluate_group_field(self, group_indices: list, elements: list,
-                              coeff: np.ndarray, n: int,
-                              x: float, y: float,
-                              alpha_l: float, alpha_t: float) -> float:
+    def _evaluate_group_field(self, group_indices, elements, coeff, n,
+                              x, y, alpha_l, alpha_t):
         """
-        Evaluate the Mathieu expansion field F (before the exp(beta*x)
-        multiplication) contributed by a specific group of elements at
-        a single point.
+        Evaluate the F-field contribution from a specific subset of elements
+        at a given (x, y) point.
 
-        Parameters
-        ----------
-        group_indices : list of int
-            Which elements to include.
-        elements : list of ATElement
-            Full element list.
-        coeff : np.ndarray
-            Full coefficient vector (all elements).
-        n : int
-            Number of Mathieu terms.
-        x, y : float
-            Evaluation point.
-        alpha_l, alpha_t : float
-            Dispersivities.
-
-        Returns
-        -------
-        float
-            F contribution from the specified group at (x, y).
+        Used during decoupled iterative solving to compute the "known"
+        cross-group contributions that must be subtracted from each group's
+        RHS. Sums Mathieu basis functions only from elements in group_indices,
+        not the full element list.
         """
         total_terms = 2 * n - 1
+        orders_all = np.arange(n)
+        orders_odd = np.arange(1, n) if n > 1 else np.array([], dtype=int)
+
         F = 0.0
         for idx in group_indices:
             elem = elements[idx]
             dx = x - elem.x
             dy = y - elem.y
             eta, psi = elem.uv(dx, dy, alpha_l, alpha_t)
-
             block = coeff[idx * total_terms: (idx + 1) * total_terms]
 
-            Fi = block[0] * elem.m.ce(0, psi).real * elem.m.Ke(0, eta).real
-            for j in range(1, n):
-                Fi += block[2*j - 1] * elem.m.se(j, psi).real * elem.m.Ko(j, eta).real
-                Fi += block[2*j    ] * elem.m.ce(j, psi).real * elem.m.Ke(j, eta).real
+            ce_vals = elem.m.ce(orders_all, psi).real
+            Ke_vals = elem.m.Ke(orders_all, eta).real
+            Fi = block[0] * ce_vals[0] * Ke_vals[0]
+
+            if n > 1:
+                se_vals = elem.m.se(orders_odd, psi).real
+                Ko_vals = elem.m.Ko(orders_odd, eta).real
+                for j in range(1, n):
+                    Fi += block[2*j-1] * se_vals[j-1] * Ko_vals[j-1]
+                    Fi += block[2*j]   * ce_vals[j]   * Ke_vals[j]
             F += Fi
         return F
 
-    def _validate_boundary_accuracy(self, elements: list, coeff: np.ndarray,
-                                    n: int, alpha_l: float, alpha_t: float,
-                                    beta: float, ca: float, gamma: float,
-                                    max_rel_error: float = 0.05) -> tuple:
+    # Solve
+
+    def _solve_coupled(self, elements, n, total_terms, alpha_l, alpha_t,
+                       beta, ca, gamma):
         """
-        Check whether the current coefficients satisfy the boundary conditions
-        to within an acceptable tolerance.
+        Solve the full coupled system with all elements in one matrix.
 
-        Evaluates the concentration at a sample of control points on each
-        element's boundary and compares against the prescribed target.
-
-        Parameters
-        ----------
-        elements : list of ATElement
-        coeff : np.ndarray
-            Full coefficient vector.
-        n : int
-            Number of Mathieu terms.
-        alpha_l, alpha_t, beta, ca, gamma : float
-            Physical parameters.
-        max_rel_error : float
-            Maximum acceptable relative error on any element boundary.
-            Default 0.05 (5%).
-
-        Returns
-        -------
-        (is_valid, worst_elem_idx, worst_rel_error)
-            is_valid: True if all boundaries meet tolerance.
-            worst_elem_idx: index of element with largest error.
-            worst_rel_error: the largest relative error found.
-        """
-        total_terms = 2 * n - 1
-        worst_rel_error = 0.0
-        worst_elem_idx = -1
-
-        for idx, elem in enumerate(elements):
-            target_conc = elem.c
-
-            # Sample a subset of control points (every 10th for speed)
-            outline = elem.outline
-            step = max(1, len(outline) // 10)
-            sample_points = outline[::step]
-
-            errors = []
-            for (x_cp, y_cp) in sample_points:
-                # Evaluate the full field at this control point
-                F = 0.0
-                for eidx, e in enumerate(elements):
-                    dx = x_cp - e.x
-                    dy = y_cp - e.y
-                    eta, psi = e.uv(dx, dy, alpha_l, alpha_t)
-                    block = coeff[eidx * total_terms: (eidx + 1) * total_terms]
-
-                    Fi = block[0] * e.m.ce(0, psi).real * e.m.Ke(0, eta).real
-                    for j in range(1, n):
-                        Fi += block[2*j - 1] * e.m.se(j, psi).real * e.m.Ko(j, eta).real
-                        Fi += block[2*j    ] * e.m.ce(j, psi).real * e.m.Ke(j, eta).real
-                    F += Fi
-
-                total = F * np.exp(beta * x_cp)
-                if total > ca:
-                    conc = (total - ca) / gamma
-                else:
-                    conc = total - ca
-
-                errors.append(abs(conc - target_conc))
-
-            mean_error = np.mean(errors)
-            denom = max(abs(target_conc), 1e-10)
-            rel_error = mean_error / denom
-
-            if rel_error > worst_rel_error:
-                worst_rel_error = rel_error
-                worst_elem_idx = idx
-
-        is_valid = worst_rel_error < max_rel_error
-        return is_valid, worst_elem_idx, worst_rel_error
-
-    def _solve_coupled(self, elements: list, n: int, total_terms: int,
-                       alpha_l: float, alpha_t: float, beta: float,
-                       ca: float, gamma: float) -> np.ndarray:
-        """
-        Solve all elements in a single coupled system (original approach
-        with row scaling).
-
-        Returns
-        -------
-        np.ndarray
-            Coefficient vector for all elements.
+        This is the simplest and typically most accurate approach when the
+        matrix is well-conditioned. All element-element cross-terms are
+        present, so there's no information loss. Used when the condition
+        number of the assembled matrix is below the threshold in solve_system.
         """
         all_indices = list(range(len(elements)))
         A, b = self._build_group_system(
-            all_indices, elements, alpha_l, alpha_t, beta, ca, gamma, n
-        )
+            all_indices, elements, alpha_l, alpha_t, beta, ca, gamma, n)
         coeffs, _ = self._solve_scaled_lstsq(A, b)
         coeff = np.zeros(len(elements) * total_terms)
-        for local_idx, global_idx in enumerate(all_indices):
-            start = global_idx * total_terms
-            local_start = local_idx * total_terms
-            coeff[start:start+total_terms] = coeffs[local_start:local_start+total_terms]
+        for li, gi in enumerate(all_indices):
+            coeff[gi*total_terms:(gi+1)*total_terms] = \
+                coeffs[li*total_terms:(li+1)*total_terms]
         return coeff
 
-    def _solve_decoupled_iterative(self, elements: list, groups: list,
-                                   n: int, total_terms: int,
-                                   alpha_l: float, alpha_t: float,
-                                   beta: float, ca: float, gamma: float) -> np.ndarray:
+    def _solve_decoupled_iterative(self, elements, groups, n, total_terms,
+                                   alpha_l, alpha_t, beta, ca, gamma):
         """
-        Solve element groups independently with iterative cross-group
-        correction (Gauss-Seidel style).
+        Gauss-Seidel iteration over independent element groups.
 
-        Returns
-        -------
-        np.ndarray
-            Coefficient vector for all elements.
+        Each group is solved as a self-contained least-squares system, but
+        the RHS is corrected by subtracting the known field contributions
+        from all other groups. This accounts for cross-group coupling
+        without assembling a single large matrix.
+
+        The iteration converges when the coefficient vector changes by less
+        than `tol` in relative L2 norm between successive rounds, or stops
+        after `max_iter` rounds. Typically converges in 2-4 iterations when
+        groups are well-separated.
         """
         num_elements = len(elements)
-
-        # Pre-build each group's A matrix and original RHS
         group_data = []
         for group in groups:
             A, b_original = self._build_group_system(
-                group, elements, alpha_l, alpha_t, beta, ca, gamma, n
-            )
+                group, elements, alpha_l, alpha_t, beta, ca, gamma, n)
             control_points = []
             for g_idx in group:
                 for (x_cp, y_cp) in elements[g_idx].outline:
                     control_points.append((x_cp, y_cp))
-
             group_data.append({
-                'indices': group,
-                'A': A,
-                'b_original': b_original,
-                'control_points': control_points,
+                'indices': group, 'A': A,
+                'b_original': b_original, 'control_points': control_points,
             })
 
         coeff = np.zeros(num_elements * total_terms)
-
-        # Iterative solve
         max_iter = 8
         tol = 1e-6
 
         for iteration in range(max_iter):
             coeff_old = coeff.copy()
-
             for gi, gd in enumerate(group_data):
                 group = gd['indices']
                 b_corrected = gd['b_original'].copy()
-
-                # Subtract cross-group contributions
+                # Subtract contributions from every other group using the
+                # current best estimate of their coefficients
                 for gj, gd_other in enumerate(group_data):
                     if gi == gj:
                         continue
@@ -755,12 +692,10 @@ class ATSimulation:
                     for cp_idx, (x_cp, y_cp) in enumerate(gd['control_points']):
                         F_other = self._evaluate_group_field(
                             other_group, elements, coeff, n,
-                            x_cp, y_cp, alpha_l, alpha_t
-                        )
+                            x_cp, y_cp, alpha_l, alpha_t)
                         b_corrected[cp_idx] -= F_other
 
                 coeffs, _ = self._solve_scaled_lstsq(gd['A'], b_corrected)
-
                 for local_idx, global_idx in enumerate(group):
                     start = global_idx * total_terms
                     local_start = local_idx * total_terms
@@ -769,9 +704,7 @@ class ATSimulation:
             delta = np.linalg.norm(coeff - coeff_old)
             norm = np.linalg.norm(coeff)
             rel_change = delta / norm if norm > 0 else delta
-
             logger.info(f"  Iteration {iteration+1}: rel_change={rel_change:.2e}")
-
             if rel_change < tol:
                 print(f"Decoupled solve converged after {iteration+1} iterations "
                       f"(rel_change={rel_change:.2e})")
@@ -781,93 +714,74 @@ class ATSimulation:
         return coeff
 
     @staticmethod
-    def _find_atomic_units(elements: list) -> tuple:
+    def _find_atomic_units(elements):
         """
-        Identify groups of elements that must always be solved together,
-        and shared elements that must be included in every group.
+        Classify elements into "atomic units" that cannot be split during
+        decoupling, plus a list of "shared" elements that must be included
+        in every solve group.
 
-        In vertical orientation, each real source has a paired image element.
-        These two must never be separated. A single zero-isoline at the end
-        of the element list enforces the surface boundary condition and must
-        be included in every solve group.
+        In vertical orientation:
+          - Each source element and its mirror image form an atomic unit
+            (they must always be solved together because they enforce the
+            no-flux water-table condition as a pair).
+          - The zero-isoline element is shared across all groups because
+            it enforces a condition that applies everywhere along y=0.
 
-        In horizontal orientation, each element is independent with no
-        shared elements.
+        In horizontal orientation, each element is its own atomic unit and
+        there are no shared elements.
 
-        Returns
-        -------
-        (units, shared)
-            units: list of list of int — each inner list is an atomic unit
-            shared: list of int — indices that must be included in every group
+        Returns (units, shared) where units is a list of lists of indices
+        and shared is a flat list of indices.
         """
         units = []
         shared = []
         i = 0
         while i < len(elements):
             eid = elements[i].id.lower() if elements[i].id else ""
-
             if eid.startswith("zero_"):
-                # Zero-isoline is shared across all groups
                 shared.append(i)
                 i += 1
             elif (not eid.startswith("image_")
                   and i + 1 < len(elements)
                   and (elements[i+1].id or "").lower().startswith("image_")):
-                # Source-image pair
                 units.append([i, i+1])
                 i += 2
             else:
-                # Standalone element
                 units.append([i])
                 i += 1
-
         return units, shared
 
-    def solve_system(self, alpha_l: float, alpha_t: float, beta: float,
-            gamma: float, ca: float, n: int, M: int):
+    def solve_system(self, alpha_l, alpha_t, beta, gamma, ca, n, M):
         """
-        Solve for Mathieu function expansion coefficients.
+        Top-level solver: try coupled, fall back to decoupled if ill-conditioned.
 
-        Attempts a single coupled least-squares solve. If the resulting
-        condition number exceeds 1e14, falls back to a decoupled iterative
-        (Gauss-Seidel) solve on sub-groups found by recursive splitting at
-        the largest spatial gap. Results are stored in ``self.coeff``.
+        Strategy:
+          1. Assemble and solve the full coupled system.
+          2. Check the condition number. If below 1e14, the coupled solve
+             is trusted and we're done.
+          3. Otherwise, recursively split the element list into well-
+             conditioned subgroups (respecting atomic units), then run the
+             decoupled iterative solver.
+          4. If splitting doesn't help (only one atomic unit left), fall
+             back to the original coupled result despite its conditioning.
 
-        Parameters
-        ----------
-        alpha_l, alpha_t : float
-            Longitudinal and transverse dispersivities.
-        beta : float
-            Exponential decay coefficient.
-        gamma : float
-            Stoichiometric ratio.
-        ca : float
-            Acceptor concentration threshold.
-        n : int
-            Number of Mathieu function terms.
-        M : int
-            Number of control points per element.
+        The resulting coefficient vector is stored in self.coeff.
         """
         elements = self.config.elements
         num_elements = len(elements)
         total_terms = 2 * n - 1
         cond_threshold = 1e14
 
-        # --- Step 1: Try coupled solve (same as OG code) ---
         all_indices = list(range(num_elements))
         A, b = self._build_group_system(
-            all_indices, elements, alpha_l, alpha_t, beta, ca, gamma, n
-        )
+            all_indices, elements, alpha_l, alpha_t, beta, ca, gamma, n)
 
-        # Use rcond=None (OG behavior) and no row scaling
         coeffs, residuals, rank, sv = np.linalg.lstsq(A, b, rcond=None)
-
         cond = np.inf
         if sv is not None and len(sv) > 0:
             cond = sv[0] / sv[-1] if sv[-1] > 0 else np.inf
 
         if cond < cond_threshold:
-            # Well-conditioned: accept the coupled solve
             self.coeff = np.zeros(num_elements * total_terms)
             for li, gi in enumerate(all_indices):
                 self.coeff[gi*total_terms:(gi+1)*total_terms] = \
@@ -875,21 +789,17 @@ class ATSimulation:
             print(f"Coupled solve: OK (cond={cond:.1e})")
             return
 
-        # --- Step 2: Ill-conditioned — split and solve iteratively ---
         print(f"Coupled solve ill-conditioned (cond={cond:.1e}) "
               f"— switching to decoupled solve")
 
         units, shared = self._find_atomic_units(elements)
         groups = self._split_until_valid(
             all_indices, elements, units, shared, n, total_terms,
-            alpha_l, alpha_t, beta, ca, gamma,
-            cond_threshold
-        )
+            alpha_l, alpha_t, beta, ca, gamma, cond_threshold)
 
         self.coeff = np.zeros(num_elements * total_terms)
 
         if len(groups) == 1:
-            # Split didn't help — store the coupled result anyway
             for li, gi in enumerate(all_indices):
                 self.coeff[gi*total_terms:(gi+1)*total_terms] = \
                     coeffs[li*total_terms:(li+1)*total_terms]
@@ -901,62 +811,38 @@ class ATSimulation:
 
         self.coeff = self._solve_decoupled_iterative(
             elements, groups, n, total_terms,
-            alpha_l, alpha_t, beta, ca, gamma
-        )
+            alpha_l, alpha_t, beta, ca, gamma)
 
-    def _split_until_valid(self, indices: list, elements: list,
-                           units: list, shared: list,
-                           n: int, total_terms: int,
-                           alpha_l: float, alpha_t: float,
-                           beta: float, ca: float, gamma: float,
-                           cond_threshold: float) -> list:
+    def _split_until_valid(self, indices, elements, units, shared,
+                           n, total_terms, alpha_l, alpha_t,
+                           beta, ca, gamma, cond_threshold):
         """
-        Recursively split a group of element indices until each sub-group
-        has a well-conditioned solve (condition number < cond_threshold).
+        Recursively split a set of elements until each subgroup is
+        well-conditioned.
 
-        Splits at the largest spatial gap between atomic units while
-        always including shared elements (e.g. zero-isolines) in every
-        sub-group. Returns a flat list of groups, each a list of indices.
+        At each level: if the group's matrix is already well-conditioned,
+        return it as a single group. Otherwise, find the largest spatial
+        gap between atomic units (sorted by x, then y), split there, add
+        the shared elements to each side, and recurse on both halves.
 
-        Parameters
-        ----------
-        indices : list of int
-            Element indices in the current group.
-        elements : list of ATElement
-        units : list of list of int
-            Atomic units that must not be separated.
-        shared : list of int
-            Indices always included in every sub-group.
-        n, total_terms : int
-        alpha_l, alpha_t, beta, ca, gamma : float
-        cond_threshold : float
-            Maximum acceptable condition number.
-
-        Returns
-        -------
-        list of list of int
+        Returns a flat list of groups (each a list of element indices)
+        whose union covers all input indices.
         """
         index_set = set(indices)
-        contained_units = [u for u in units
-                           if all(i in index_set for i in u)]
+        contained_units = [u for u in units if all(i in index_set for i in u)]
 
-        # Base case: single atomic unit — cannot split further
         if len(contained_units) <= 1:
             return [indices]
 
-        # Try solving this group
         A, b = self._build_group_system(
-            indices, elements, alpha_l, alpha_t, beta, ca, gamma, n
-        )
+            indices, elements, alpha_l, alpha_t, beta, ca, gamma, n)
         coeffs, cond = self._solve_scaled_lstsq(A, b)
 
         if cond < cond_threshold:
             return [indices]
 
-        # Ill-conditioned — split at largest gap
         sorted_units = sorted(contained_units,
-                              key=lambda u: (elements[u[0]].x,
-                                             elements[u[0]].y))
+                              key=lambda u: (elements[u[0]].x, elements[u[0]].y))
 
         max_gap = -1
         split_pos = 1
@@ -971,219 +857,156 @@ class ATSimulation:
 
         left_units = sorted_units[:split_pos]
         right_units = sorted_units[split_pos:]
-
-        left = [i for u in left_units for i in u] + shared
-        right = [i for u in right_units for i in u] + shared
-
-        # Deduplicate (shared might already be in units)
-        left = sorted(set(left))
-        right = sorted(set(right))
-
-        logger.info(f"  Splitting {sorted(indices)} -> "
-                    f"{left} + {right} (cond={cond:.1e}, gap={max_gap:.1f})")
+        left = sorted(set([i for u in left_units for i in u] + shared))
+        right = sorted(set([i for u in right_units for i in u] + shared))
 
         left_groups = self._split_until_valid(
             left, elements, units, shared, n, total_terms,
-            alpha_l, alpha_t, beta, ca, gamma, cond_threshold
-        )
+            alpha_l, alpha_t, beta, ca, gamma, cond_threshold)
         right_groups = self._split_until_valid(
             right, elements, units, shared, n, total_terms,
-            alpha_l, alpha_t, beta, ca, gamma, cond_threshold
-        )
-
+            alpha_l, alpha_t, beta, ca, gamma, cond_threshold)
         return left_groups + right_groups
 
-    def _validate_group_boundary(self, group_indices: list, elements: list,
-                                 coeff: np.ndarray, n: int,
-                                 alpha_l: float, alpha_t: float,
-                                 beta: float, ca: float, gamma: float,
-                                 max_rel_error: float = 0.05) -> bool:
+    def _validate_group_boundary(self, group_indices, elements, coeff, n,
+                                 alpha_l, alpha_t, beta, ca, gamma,
+                                 max_rel_error=0.05):
         """
-        Check whether the current coefficients produce accurate boundary
-        values for the elements in group_indices.
+        Check whether a solved group's coefficients satisfy the boundary
+        conditions on its own elements.
 
-        Compares in F-space (the transformed variable that the matrix
-        equation actually solves for) to correctly handle all element
-        types: sources, images, and zero-isolines.
+        Samples ~10 points along each element's outline, evaluates the
+        F-field from this group only, and compares against the prescribed
+        target value. Returns True if every element's mean error is below
+        max_rel_error relative to its target magnitude.
+
+        Used as a post-solve sanity check — if False, the group may need
+        further splitting.
         """
         total_terms = 2 * n - 1
-
         for idx in group_indices:
             elem = elements[idx]
             outline = elem.outline
             step = max(1, len(outline) // 10)
-
             errors = []
             for (x_cp, y_cp) in outline[::step]:
-                # Evaluate F from THIS GROUP's elements only
-                F = 0.0
-                for eidx in group_indices:
-                    e = elements[eidx]
-                    dx, dy = x_cp - e.x, y_cp - e.y
-                    eta, psi = e.uv(dx, dy, alpha_l, alpha_t)
-                    block = coeff[eidx*total_terms:(eidx+1)*total_terms]
-
-                    Fi = block[0] * e.m.ce(0, psi).real * e.m.Ke(0, eta).real
-                    for j in range(1, n):
-                        Fi += block[2*j-1] * e.m.se(j, psi).real * e.m.Ko(j, eta).real
-                        Fi += block[2*j  ] * e.m.ce(j, psi).real * e.m.Ke(j, eta).real
-                    F += Fi
-
-                # Compare in F-space against the actual boundary condition
+                F = self._evaluate_group_field(
+                    group_indices, elements, coeff, n,
+                    x_cp, y_cp, alpha_l, alpha_t)
                 f_tgt = self.f_target(x_cp, elem, ca, gamma, beta)
                 if f_tgt is not None:
                     errors.append(abs(F - f_tgt))
-
             if not errors:
                 continue
-
             mean_err = np.mean(errors)
-            # Normalise by the target magnitude
             f_tgt_sample = self.f_target(elem.x, elem, ca, gamma, beta)
             denom = max(abs(f_tgt_sample), 1e-30) if f_tgt_sample is not None else 1e-30
-            rel_err = mean_err / denom
-            if rel_err > max_rel_error:
+            if mean_err / denom > max_rel_error:
                 return False
-
         return True
 
-    def build_row(self, elem, eta: float, psi: float, n: int) -> list:
+    # Boundary condition target
+
+    def f_target(self, x, elem, ca, gamma, beta):
         """
-        Build one row of the coefficient matrix for a single element.
+        Return the prescribed F-space value on an element's boundary at
+        position x.
 
-        Evaluates the Mathieu basis functions (ce/se for angular, Ke/Ko
-        for radial) at the given elliptic coordinates up to order n and
-        returns the (2n-1) values that form one row of the linear system.
+        The F-space is the transformed variable that the least-squares
+        matrix equation solves for: F = (actual concentration reaction
+        term) * exp(-beta*x). The exp(-beta*x) factor unwraps the
+        advection term so the Mathieu expansion itself doesn't need to
+        represent it.
 
-        Parameters
-        ----------
-        elem : ATElement
-        eta : float
-            Radial elliptic coordinate at the control point.
-        psi : float
-            Angular elliptic coordinate at the control point.
-        n : int
-            Number of Mathieu terms.
+        Different cases based on element type and sign:
+          - Donor source (Ci > 0, not image):  (Ci*gamma + ca) * exp(-beta*x)
+          - Acceptor source (Ci < 0, not image): (Ci + ca) * exp(-beta*x)
+          - Image-donor (Ci < 0, image): -(image-donor counterpart)
+          - Image-acceptor (Ci > 0, image): -(image-acceptor counterpart)
+          - Zero-isoline (Ci = 0): ca * exp(-beta*x)
 
-        Returns
-        -------
-        list of float, length 2n-1
+        The image-element cases have flipped signs to enforce the no-flux
+        mirror boundary condition at y=0.
         """
-        row: list = [elem.m.ce(0, psi).real * elem.m.Ke(0, eta).real]
-        for j in range(1, n):
-            row.append(elem.m.se(j, psi).real * elem.m.Ko(j, eta).real)
-            row.append(elem.m.ce(j, psi).real * elem.m.Ke(j, eta).real)
-        return row
-
-    def f_target(self, x: float, elem, ca: float, gamma: float, beta: float):
-        """
-        Compute the RHS target value in transformed F-space for a boundary point.
-
-        Converts the prescribed element concentration into the F-space
-        equivalent (accounting for donor/acceptor sign conventions and
-        image-element negation) required by the least-squares system.
-
-        Parameters
-        ----------
-        x : float
-            x-coordinate of the control point.
-        elem : ATElement
-            Element whose boundary condition is being enforced.
-        ca : float
-            Acceptor concentration threshold.
-        gamma : float
-            Stoichiometric ratio.
-        beta : float
-            Exponential decay coefficient.
-
-        Returns
-        -------
-        float or None
-        """
-        Ci: float = elem.c
+        Ci = elem.c
         is_image = elem.id.lower().startswith("image")
-
-        # Donor
         if Ci > 0 and not is_image:
             return (Ci * gamma + ca) * np.exp(-beta * x)
-
-        # Acceptor
         if Ci < 0 and not is_image:
             return (Ci + ca) * np.exp(-beta * x)
-
-        # Image‐donor (neg conc & image)
         if Ci < 0 and is_image:
             return -((abs(Ci) * gamma + ca) * np.exp(-beta * x))
-
-        # Image‐acceptor (pos conc & image)
         if Ci > 0 and is_image:
             return -((Ci + ca) * np.exp(-beta * x))
-
         if Ci == 0 and not is_image:
             return ca * np.exp(-beta * x)
 
-    def calc_c(self, x: float, y: float) -> float:
+    # Point evaluation (vectorized Mathieu)
+
+    def calc_c(self, x, y):
         """
-        Evaluate the concentration field at a single point (x, y).
+        Evaluate the concentration field at a single (x, y) point using
+        the solved coefficient vector.
 
-        Sums the Mathieu expansion over all elements using the solved
-        coefficients, applies the exponential factor, and maps the result
-        to the donor/acceptor concentration via the ca/gamma transform.
-        Inside element boundaries the prescribed concentration is returned.
+        This is the single-process counterpart to _compute_point used by
+        the parallel grid evaluation. Used for on-demand evaluation at
+        arbitrary points (e.g., for boundary validation or individual
+        spot checks) after conc_array has populated self.result.
 
-        Parameters
-        ----------
-        x, y : float
-            Coordinates at which to evaluate the concentration.
-
-        Returns
-        -------
-        float
-            Concentration in mg/l.
+        The reaction-term mapping mirrors _compute_point:
+          - F * exp(beta*x) > ca:  donor regime, C = (F*exp(beta*x) - ca) / gamma
+          - F * exp(beta*x) <= ca: acceptor regime, C = F*exp(beta*x) - ca
         """
-        n: int = self.config.num_terms
-        alpha_l: float = self.config.alpha_l
-        alpha_t: float = self.config.alpha_t
+        n = self.config.num_terms
+        alpha_l = self.config.alpha_l
+        alpha_t = self.config.alpha_t
+        total_coeffs = self.coeff
+        total_terms = 2 * n - 1
 
-        total_coeffs: list = self.coeff
-        total_terms: int = 2 * n - 1
-        F: float = 0.0
+        orders_all = np.arange(n)
+        orders_odd = np.arange(1, n) if n > 1 else np.array([], dtype=int)
 
+        F = 0.0
         for idx, elem in enumerate(self.config.elements):
-            dx: float = x - elem.x
-            dy: float = y - elem.y
+            dx = x - elem.x
+            dy = y - elem.y
             eta, psi = elem.uv(dx, dy, alpha_l, alpha_t)
-            coeffs: list = total_coeffs[idx * total_terms:(idx + 1) * total_terms]
+            coeffs = total_coeffs[idx * total_terms:(idx + 1) * total_terms]
 
-            Fi: float = coeffs[0] * elem.m.ce(0, psi).real * elem.m.Ke(0, eta).real
-            for j in range(1, n):
-                Fi += coeffs[2 * j - 1] * elem.m.se(j, psi).real * elem.m.Ko(j, eta).real
-                Fi += coeffs[2 * j] * elem.m.ce(j, psi).real * elem.m.Ke(j, eta).real
+            ce_vals = elem.m.ce(orders_all, psi).real
+            Ke_vals = elem.m.Ke(orders_all, eta).real
+            Fi = coeffs[0] * ce_vals[0] * Ke_vals[0]
 
+            if n > 1:
+                se_vals = elem.m.se(orders_odd, psi).real
+                Ko_vals = elem.m.Ko(orders_odd, eta).real
+                for j in range(1, n):
+                    Fi += coeffs[2*j-1] * se_vals[j-1] * Ko_vals[j-1]
+                    Fi += coeffs[2*j]   * ce_vals[j]   * Ke_vals[j]
             F += Fi
 
-        total: float = F * np.exp(self.config.beta * x)
+        total = F * np.exp(self.config.beta * x)
         if total > self.config.ca:
             return (total - self.config.ca) / self.config.gamma
         else:
             return total - self.config.ca
 
-    def conc_array(self, xmin: float, ymin: float, xmax: float, ymax: float, inc: float):
-        """
-        Parallel computation of concentration over the domain grid
+    # Grid evaluation (parallel, platform-aware)
 
-        Parameters
-        ----------
-        xmin : float
-            Minimum x-coordinate of the domain
-        ymin : float
-            Minimum y-coordinate of the domain
-        xmax : float
-            Maximum x-coordinate of the domain
-        ymax : float
-            Maximum y-coordinate of the domain
-        inc : float
-            Grid Spacing
+    def conc_array(self, xmin, ymin, xmax, ymax, inc):
+        """
+        Populate self.result with the concentration field evaluated on a
+        regular grid spanning the requested extents.
+
+        Coordinates are placed at [xmin, xmin+inc, ..., xmax] and similarly
+        for y. The evaluation is parallelized across CPU cores, with each
+        worker calling _compute_point_shared for its chunk of grid points.
+
+        On Linux/macOS the default fork multiprocessing context is used
+        (fast worker startup, shared memory with the parent). On Windows
+        spawn is required; this is ~1 second slower but unavoidable.
+        The chunksize is tuned so each worker handles ~25% of its share of
+        points per dispatch, balancing parallelism against IPC overhead.
         """
         self.xaxis = np.arange(xmin, xmax + inc, inc)
         self.yaxis = np.arange(ymin, ymax + inc, inc)
@@ -1192,89 +1015,85 @@ class ATSimulation:
         coords = list(zip(xs.ravel(), ys.ravel()))
 
         pool_args = (
-            self.config.elements,
-            self.coeff,
-            self.config.num_terms,
-            self.config.alpha_l,
-            self.config.alpha_t,
-            self.config.beta,
-            self.config.ca,
-            self.config.gamma
+            self.config.elements, self.coeff, self.config.num_terms,
+            self.config.alpha_l, self.config.alpha_t,
+            self.config.beta, self.config.ca, self.config.gamma
         )
 
-        ctx = multiprocessing.get_context('spawn')
-        with ctx.Pool(processes=cpu_count(), initializer=_init_pool, initargs=pool_args) as pool:
-            flat = pool.map(_compute_point_shared, coords)
+        nproc = cpu_count()
+        chunksize = max(1, len(coords) // (nproc * 4))
+
+        if platform.system() == 'Windows':
+            ctx = multiprocessing.get_context('spawn')
+        else:
+            ctx = multiprocessing  # default fork context
+
+        with ctx.Pool(processes=nproc, initializer=_init_pool,
+                      initargs=pool_args) as pool:
+            flat = pool.map(_compute_point_shared, coords, chunksize=chunksize)
 
         self.result = np.array(flat).reshape(xs.shape)
         self.result_tuple = (self.xaxis, self.yaxis, self.result)
 
+    # Post-processing
 
-    def generate_filename_suffix(self) -> str:
+    def generate_filename_suffix(self):
         """
-        Build a descriptive filename suffix encoding key run parameters.
+        Build a descriptive filename suffix for output files.
 
-        Returns a string of the form
-        ``<n>-elements_<t>-terms_acceptor-<yes|no>_inc-<inc>``
-        used to uniquely label output files.
+        Format: <N>-elements_<num_terms>-terms_acceptor-<yes|no>_inc-<dom_inc>
+        Used to keep output files self-describing when there are multiple
+        runs in the Results directory.
         """
-        n_elements: int = len(self.config.elements)
-        num_terms: int = self.config.num_terms
-        inc: float = self.config.dom_inc
+        n_elements = len(self.config.elements)
+        has_acceptor = any(elem.c < 0 for elem in self.config.elements)
+        acceptor_str = "acceptor-yes" if has_acceptor else "acceptor-no"
+        return f"{n_elements}-elements_{self.config.num_terms}-terms_{acceptor_str}_inc-{self.config.dom_inc}"
 
-        has_acceptor: bool = any(elem.c < 0 for elem in self.config.elements)
-        acceptor_str: str = "acceptor-yes" if has_acceptor else "acceptor-no"
-
-        return f"{n_elements}-elements_{num_terms}-terms_{acceptor_str}_inc-{inc}"
-
-    def get_next_run_index(self, results_dir: str) -> int:
+    def get_next_run_index(self, results_dir):
         """
-        Return the next sequential run index for output naming.
+        Return the next unused numeric run index for naming the output
+        subdirectory.
 
-        Scans ``results_dir`` for existing zero-padded 4-digit subdirectories
-        and returns one greater than the highest found (starting at 1 if none
-        exist).
-
-        Parameters
-        ----------
-        results_dir : str
-            Path to the Results directory.
-
-        Returns
-        -------
-        int
+        Scans <results_dir> for subdirectories named with zero-padded
+        integers (0001, 0002, ...) and returns the highest + 1. Returns 1
+        if the directory doesn't exist or has no numeric subdirectories.
         """
         if not os.path.exists(results_dir):
             return 1
-
-        max_index: int = 0
+        max_index = 0
         for entry in os.listdir(results_dir):
-            # Each run lives in a zero-padded 4-digit subdirectory, e.g. "0001"
             if os.path.isdir(os.path.join(results_dir, entry)):
                 try:
-                    index: int = int(entry)
-                    max_index = max(max_index, index)
+                    max_index = max(max_index, int(entry))
                 except ValueError:
                     continue
-
         return max_index + 1
 
     def calculate_lmax(self):
         """
-        Compute L_max (furthest x-intersection of the 0-contour) and the interface length
-        (total polyline length of the chosen 0-contour) in meters.
+        Extract the zero-concentration contour from self.result and compute:
+          - self.L_max: the furthest x-coordinate reached by any zero-contour
+            path (rounded to an integer meter).
+          - self.interface_length: the total polyline length of the chosen
+            contour path (the one with the largest max-x).
+
+        The zero-contour separates the donor-dominated region (C > 0) from
+        the acceptor-dominated region (C < 0) and defines the plume
+        envelope. L_max is the key diagnostic for plume extent.
+
+        Uses matplotlib's contour extraction (on an off-screen figure that
+        is immediately discarded) since it handles irregular grids and
+        disconnected paths robustly.
         """
         fig_temp = plt_temp.figure()
-        # Contour in index space; vertices are in pixel units, scale later by dom_inc
         contour_temp = plt_temp.contour(self.result, levels=[0])
-
         paths = contour_temp.get_paths()
         chosen = None
         self.interface_length = None
         self.L_max = None
 
         if paths:
-            # Choose the path whose max-x (in index space) is largest → defines L_max
             max_x_overall = -np.inf
             for p in paths:
                 v = p.vertices
@@ -1286,151 +1105,157 @@ class ATSimulation:
                     chosen = v
 
             if chosen is not None and len(chosen) > 1:
-                # L_max from furthest x (index units → meters)
                 self.L_max = int(max_x_overall * self.config.dom_inc)
-
-                # Interface length: sum of segment lengths along the chosen contour (index units → meters)
                 diffs = np.diff(chosen, axis=0)
-                seg_len_idx = np.hypot(diffs[:, 0], diffs[:, 1])
-                self.interface_length = float(np.sum(seg_len_idx) * self.config.dom_inc)
+                self.interface_length = float(
+                    np.sum(np.hypot(diffs[:, 0], diffs[:, 1])) * self.config.dom_inc)
 
         plt_temp.close(fig_temp)
 
         if self.L_max is not None:
-            print('Lmax =', self.L_max)
+            print(f'Lmax = {self.L_max}')
             if self.interface_length is not None:
                 print(f'Interface length = {self.interface_length:.3f} m')
-            else:
-                print('Interface length: -')
         else:
             print("L_max: -")
-            print("Interface length: -")
 
     def check_domain_adequacy(self):
         """
-        Warn if L_max reaches close to the x-domain boundary.
+        Warn if the computed plume reaches the edge of the domain.
 
-        Prints a warning when L_max exceeds 95 % of the domain width,
-        indicating the plume may be artificially truncated and a larger
-        domain should be used.
+        If L_max is within 5% of dom_xmax, the plume may actually extend
+        further than the domain — the reported L_max is a lower bound, not
+        the true value. Dynamic domain extension in run() will normally
+        prevent this, but the check remains as a safety net.
         """
         if self.L_max is None:
             return
-
-        # domain dimension
-        domain_width: float = self.config.dom_xmax - self.config.dom_xmin
-
-        # check if L_max is close to the maximum x-domain using threshold
-        x_threshold: float = 0.95
-        max_x_distance: float = self.L_max - self.config.dom_xmin
-
-        # Check X-direction (most critical for L_max)
-        if max_x_distance >= x_threshold * domain_width:
-            warning_msg = (f"WARNING: L_max ({self.L_max:.1f} m) is capped by x-domain boundary! "
-                           f"L_max extends to {max_x_distance / domain_width * 100:.1f}% of domain width. ")
-            print(warning_msg)
+        domain_width = self.config.dom_xmax - self.config.dom_xmin
+        max_x_distance = self.L_max - self.config.dom_xmin
+        if max_x_distance >= 0.95 * domain_width:
+            print(f"WARNING: L_max ({self.L_max:.1f} m) capped by x-domain boundary! "
+                  f"({max_x_distance / domain_width * 100:.1f}% of width)")
 
     def check_concentration_range(self):
         """
-        Warn if computed concentrations fall outside the physically expected range.
+        Warn if computed grid concentrations fall outside the physical
+        range defined by the element concentrations.
 
-        Compares the result grid against the element concentration bounds
-        (with a 1 % tolerance). Prints a summary if more than 1 % of grid
-        points are out of range, which may indicate numerical issues or
-        insufficient resolution.
+        Values should lie between the minimum of (-8, min element c) and
+        the maximum of (all element c). Values outside this range by more
+        than 1% indicate numerical problems — typically exp(beta*x)
+        overflow in far-field regions or solver divergence.
+
+        The -8 floor corresponds to a reasonable background acceptor
+        concentration; adjust if your configs use different values.
         """
         if len(self.config.elements) == 0:
             return
-
-        # Get min and max concentration values from elements
-        element_concentrations: list = [elem.c for elem in self.config.elements]
-        min_expected: float = -8.0
-        if min(element_concentrations) < min_expected:
-            min_expected = min(element_concentrations)
-        max_expected: float = max(element_concentrations)
-
-        result_min: float = np.min(self.result)
-        result_max: float = np.max(self.result)
-
-        # tolerance
-        tolerance: float = 0.01 * max(abs(min_expected), abs(max_expected))
-
-        warnings_issued: bool = False
-
-        # outside of expected range
-        outside_range_count: int = np.sum((self.result > max_expected + tolerance) |
-                                     (self.result < min_expected - tolerance))
-        total_points: int = self.result.size
-
-        percentage: float = (outside_range_count / total_points) * 100
-
-        if percentage > 1.0:
-            warning_msg: str = (f"WARNING: {outside_range_count} points ({percentage:.2f}%) are outside expected range "
-                           f"[{min_expected:.3f}, {max_expected:.3f}] mg/l")
-            print(warning_msg)
-            warnings_issued = True
-
-        if warnings_issued:
-            print("\n*** CONCENTRATION RANGE SUMMARY ***")
-            print(f"Expected range: [{min_expected:.3f}, {max_expected:.3f}] mg/l")
-            print(f"Actual range: [{result_min:.3f}, {result_max:.3f}] mg/l")
-            print(f"Element concentrations: {element_concentrations}")
-            print("This may indicate numerical issues or insufficient domain resolution.\n")
+        element_concs = [elem.c for elem in self.config.elements]
+        min_expected = min(-8.0, min(element_concs))
+        max_expected = max(element_concs)
+        tolerance = 0.01 * max(abs(min_expected), abs(max_expected))
+        outside = np.sum((self.result > max_expected + tolerance) |
+                         (self.result < min_expected - tolerance))
+        pct = outside / self.result.size * 100
+        if pct > 1.0:
+            print(f"WARNING: {outside} points ({pct:.2f}%) outside expected range "
+                  f"[{min_expected:.3f}, {max_expected:.3f}] mg/l")
+            print(f"Actual range: [{np.min(self.result):.3f}, {np.max(self.result):.3f}] mg/l")
         else:
-            print(f"All concentration values within expected range [{min_expected:.3f}, {max_expected:.3f}] mg/l")
+            print(f"All concentration values within expected range "
+                  f"[{min_expected:.3f}, {max_expected:.3f}] mg/l")
+
+    # Statistics
+
+    def _build_interpolator(self):
+        """
+        Build a RegularGridInterpolator over the stored concentration field.
+
+        Used by print_statistics to look up concentration values at
+        arbitrary (x, y) points without recomputing the full Mathieu
+        expansion. Linear interpolation is used; points outside the grid
+        return NaN.
+        """
+        from scipy.interpolate import RegularGridInterpolator
+        return RegularGridInterpolator(
+            (self.yaxis, self.xaxis), self.result,
+            method='linear', bounds_error=False, fill_value=np.nan
+        )
 
     def print_statistics(self, cpu_time):
         """
-        Compute and save boundary-accuracy statistics for each element.
+        Compute and save per-element boundary concentration statistics,
+        then produce an error plot.
 
-        Samples 360 points along each element's boundary, evaluates the
-        concentration, and reports min/max/mean/std. Saves a text stats
-        file (config + results) and a PDF absolute-error plot to the run
-        subdirectory.
+        For each source element (skipping auxiliary image and zero-isoline
+        elements), samples N_SAMPLES points around its boundary, looks up
+        the concentration at each via linear interpolation from the grid,
+        and reports min/max/mean/std. These stats indicate how well the
+        solved field matches the prescribed boundary values.
 
-        Parameters
-        ----------
-        cpu_time : datetime.timedelta
-            Elapsed computation time to record in the stats file.
+        All stats are printed to stdout, saved to a text file alongside the
+        configuration parameters, and used to generate a PDF error plot
+        showing absolute error vs. boundary angle for each element.
+
+        The interpolation-based approach is grid-resolution-limited —
+        accuracy is ~dom_inc. For high-fidelity boundary checks, use
+        calc_c directly (much slower).
         """
         from math import cos, sin, pi
 
-        phi = np.linspace(0, 2 * pi, 360)
+        N_SAMPLES = 36
         stats = {}
-        x_test: np.ndarray = np.zeros((1, 1))
-        y_test: np.ndarray = np.zeros((1, 1))
+        all_elem_errors = {}
+
+        interp = self._build_interpolator()
 
         print("\n=== ELEMENT BOUNDARY STATISTICS ===")
         for idx, elem in enumerate(self.config.elements):
+            # Image and zero-isoline elements have boundaries outside the
+            # computation domain by design and should not be evaluated
+            eid = elem.id.lower() if elem.id else ""
+            if eid.startswith("image_") or eid.startswith("zero_"):
+                print(f'Element {idx + 1}: ({eid}) — skipped (auxiliary element)')
+                continue
             if elem.kind == ATElementType.Circle:
-                phi = np.linspace(0, 2 * pi, 360)
+                phi = np.linspace(0, 2 * pi, N_SAMPLES, endpoint=False)
                 x_test = elem.x + (elem.r + 1e-9) * np.cos(phi)
                 y_test = elem.y + (elem.r + 1e-9) * np.sin(phi)
 
             elif elem.kind == ATElementType.Ellipse:
-                t = np.linspace(0, 2 * pi, 360, endpoint=False)
+                phi = np.linspace(0, 2 * pi, N_SAMPLES, endpoint=False)
                 a = float(elem.r)
                 b = float(elem.b if elem.b is not None else elem.r)
-                cθ, sθ = math.cos(elem.theta), math.sin(elem.theta)
-                x_test = elem.x + a * np.cos(t) * cθ - b * np.sin(t) * sθ
-                y_test = elem.y + a * np.cos(t) * sθ + b * np.sin(t) * cθ
-                phi = t  # reuse t as angular parameter for plotting
+                ct, st = math.cos(elem.theta), math.sin(elem.theta)
+                x_test = elem.x + a * np.cos(phi) * ct - b * np.sin(phi) * st
+                y_test = elem.y + a * np.cos(phi) * st + b * np.sin(phi) * ct
 
             elif elem.kind == ATElementType.Line:
-                half_len:float = elem.r
-                s = np.linspace(-half_len + 1e-9, half_len - 1e-9, 360)
-                theta: float = elem.theta
+                half_len = elem.r
+                s = np.linspace(-half_len + 1e-9, half_len - 1e-9, N_SAMPLES)
+                phi = np.linspace(0, 2 * pi, N_SAMPLES)
+                theta = elem.theta
                 x_test = elem.x + s * cos(theta)
                 y_test = elem.y + s * sin(theta)
 
             else:
                 raise ValueError(f"Unknown element type: {elem.kind}")
 
-            Err: list = [self.calc_c(x, y) for x, y in zip(x_test, y_test)]
-            min_val: float = round(np.min(Err), 9)
-            max_val: float = round(np.max(Err), 9)
-            mean_val: float = round(np.mean(Err), 9)
-            std_val: float = round(np.std(Err), 9)
+            # Interpolate from grid instead of calling calc_c
+            pts = np.column_stack([y_test, x_test])  # interpolator expects (y, x)
+            Err = interp(pts)
+
+            # Filter out NaN (points outside domain)
+            valid = ~np.isnan(Err)
+            if np.any(valid):
+                Err_valid = Err[valid]
+                min_val = round(float(np.min(Err_valid)), 9)
+                max_val = round(float(np.max(Err_valid)), 9)
+                mean_val = round(float(np.mean(Err_valid)), 9)
+                std_val = round(float(np.std(Err_valid)), 9)
+            else:
+                min_val = max_val = mean_val = std_val = float('nan')
 
             print(f'Element {idx + 1}:')
             print(f'  Min = {min_val} mg/l')
@@ -1443,14 +1268,17 @@ class ATSimulation:
             stats[f"Mean{idx + 1}"] = mean_val
             stats[f"Std{idx + 1}"] = std_val
 
-        filename_suffix: str = self.generate_filename_suffix()
-        stats_filename: str = os.path.join(
-            self.run_dir, f"{self.run_index:04d}_stats_{filename_suffix}.txt"
-        )
+            all_elem_errors[idx] = (phi, Err.tolist())
 
-        # save statistics with config
+        # Save statistics file
+        # Writes a human-readable summary containing the config parameters,
+        # element geometry, computation time, L_max and interface length,
+        # and the per-element boundary statistics computed above.
+        filename_suffix = self.generate_filename_suffix()
+        stats_filename = os.path.join(
+            self.run_dir, f"{self.run_index:04d}_stats_{filename_suffix}.txt")
+
         with open(stats_filename, "w") as f:
-            # config parameters
             f.write("=== CONFIGURATION PARAMETERS ===\n")
             f.write(f"Number of elements: {len(self.config.elements)}\n")
             f.write(f"Number of terms: {self.config.num_terms}\n")
@@ -1462,137 +1290,137 @@ class ATSimulation:
             f.write(f"Ca: {self.config.ca}\n")
             f.write(f"Number of control points: {self.config.num_cp}\n")
             f.write(f"Orientation: {self.config.orientation}\n")
-            f.write(f"Domain: x[{self.config.dom_xmin}, {self.config.dom_xmax}], y[{self.config.dom_ymin}, {self.config.dom_ymax}]\n")
+            f.write(f"Domain: x[{self.config.dom_xmin}, {self.config.dom_xmax}], "
+                    f"y[{self.config.dom_ymin}, {self.config.dom_ymax}]\n")
 
-            # source geometry
             f.write("\n=== ELEMENTS ===\n")
-            for idx, elem in enumerate(self.config.elements):
-                if (elem.kind == ATElementType.Circle):
-                    f.write(f"Element {idx + 1}:kind={elem.kind}, x={elem.x}, y={elem.y}, r={elem.r}, c={elem.c}, id={elem.id}\n")
-                elif (elem.kind == ATElementType.Ellipse):
-                    f.write(f"Element {idx + 1}:kind={elem.kind}, x={elem.x}, y={elem.y}, a={elem.r}, b={elem.b}, theta={elem.theta}, c={elem.c}, id={elem.id}\n")
+            for eidx, elem in enumerate(self.config.elements):
+                if elem.kind == ATElementType.Circle:
+                    f.write(f"Element {eidx+1}: kind={elem.kind}, x={elem.x}, y={elem.y}, "
+                            f"r={elem.r}, c={elem.c}, id={elem.id}\n")
+                elif elem.kind == ATElementType.Ellipse:
+                    f.write(f"Element {eidx+1}: kind={elem.kind}, x={elem.x}, y={elem.y}, "
+                            f"a={elem.r}, b={elem.b}, theta={elem.theta}, c={elem.c}, id={elem.id}\n")
                 else:
-                    f.write(f"Element {idx + 1}:kind={elem.kind}, x={elem.x}, y={elem.y}, r={elem.r}, theta={elem.theta}, c={elem.c}, id={elem.id}\n")
+                    f.write(f"Element {eidx+1}: kind={elem.kind}, x={elem.x}, y={elem.y}, "
+                            f"r={elem.r}, theta={elem.theta}, c={elem.c}, id={elem.id}\n")
 
             f.write("\n=== COMPUTATION INFO ===\n")
             f.write(f"CPU Time [hh:mm:ss]: {cpu_time}\n")
-
             if self.L_max is not None:
                 f.write(f"\nL_max: {self.L_max}\n")
             if getattr(self, "interface_length", None) is not None:
                 f.write(f"InterfaceLength: {self.interface_length:.6f} m\n")
 
-            # statistics
             f.write("\n=== ELEMENT BOUNDARY STATISTICS ===\n")
             for k, v in stats.items():
                 f.write(f"{k} = {v} mg/l\n")
 
         print(f"Statistics saved to: {stats_filename}")
 
-        # --- PLOT ABSOLUTE ERROR ALONG BOUNDARIES ---
+        # Error plot
+        # Plots absolute error vs. boundary angle for each source element,
+        # one line per element. Uses the per-element error arrays stored
+        # during the statistics loop above, so no new concentration
+        # evaluations are needed.
         mpl.rcParams.update({'font.size': 22})
-        plt.figure(figsize=(16, 9), dpi=300)
+        plt.figure(figsize=(16, 9), dpi=150)
 
         styles = ['-', '--', ':', '-.']
-        for idx, elem in enumerate(self.config.elements):
-            # compute absolute error
-            Err: list = [abs(self.calc_c(x, y)) for x, y in zip(x_test, y_test)]
+        for idx in range(len(self.config.elements)):
+            if idx not in all_elem_errors:
+                continue
+            phi_plot, Err = all_elem_errors[idx]
+            plt.plot(phi_plot, [abs(e) for e in Err],
+                     linestyle=styles[idx % len(styles)],
+                     linewidth=2, label=f'Element {idx + 1}')
 
-            plt.plot(
-                phi,
-                Err,
-                linestyle=styles[idx % len(styles)],
-                linewidth=2,
-                label=f'Element {idx + 1}'
-            )
-
-        plt.xlim([0, 2 * pi])
+        plt.xlim([0, 2 * math.pi])
         plt.xlabel('Angle (°)')
         plt.ylabel('Absolute error [mg/l]')
-        plt.xticks(
-            np.linspace(0, 2 * pi, 13),
-            np.linspace(0, 360, 13).astype(int)
-        )
+        plt.xticks(np.linspace(0, 2 * math.pi, 13),
+                   np.linspace(0, 360, 13).astype(int))
         plt.legend(loc='best')
         plt.tight_layout()
 
         error_filename = os.path.join(
-            self.run_dir,
-            f"{self.run_index:04d}_error_{filename_suffix}.pdf"
-        )
+            self.run_dir, f"{self.run_index:04d}_error_{filename_suffix}.pdf")
         plt.savefig(error_filename)
+        plt.close()
         print(f"Error plot saved to: {error_filename}")
+
+    # Input plot
 
     def plot_input(self):
         """
-        Generate a dual-panel input plot of the source element layout and save
-        it to the run subdirectory.
+        Generate a two-panel visualization of the source-zone configuration.
 
-        Left panel  — source zone at true scale: x in [0, Ws], full domain
-                      y-extent, equal aspect so circles render correctly.
-        Right panel — full simulation domain overview with the source zone
-                      highlighted as a shaded band.
+        Left panel  — source zone rendered at true scale with equal aspect
+                      ratio. Shows the real element shapes (circles,
+                      ellipses, lines) colored by their prescribed
+                      concentration. The source-zone extent Ws (rightmost
+                      element edge) is marked with gold dashed lines.
+        Right panel — the full simulation domain with the source zone
+                      highlighted as a shaded band. Provides geometric
+                      context for interpreting the result plot.
+
+        Image and zero-isoline auxiliary elements are excluded; only the
+        user-defined source elements are drawn. Donor elements use the
+        Reds colormap, acceptors use Blues_r. Dual colorbars at the bottom
+        span the full donor and acceptor concentration ranges found in
+        the config.
+
+        Saves to Results/<run_index>/<run_index>_input_<suffix>.pdf.
         """
         import matplotlib.patches as mpatches
         from matplotlib.gridspec import GridSpec
 
-        # Use only the original (non-image, non-zero) elements for the plot
         elements = [e for e in self.config.elements
                     if not e.id.lower().startswith("image_")
                     and not e.id.lower().startswith("zero_")]
-
         if not elements:
             return
 
         concs = [e.c for e in elements]
         max_conc = max(concs)
         min_conc = min(concs)
-        has_donor    = max_conc > 0
+        has_donor = max_conc > 0
         has_acceptor = min_conc < 0
         ca = self.config.ca
 
-        donor_cmap    = plt.cm.Reds
+        donor_cmap = plt.cm.Reds
         acceptor_cmap = plt.cm.Blues_r
         donor_norm = mpl.colors.Normalize(vmin=0, vmax=max_conc if has_donor else 1)
-        acc_norm   = mpl.colors.Normalize(vmin=min_conc if has_acceptor else -ca, vmax=0)
-
+        acc_norm = mpl.colors.Normalize(vmin=min_conc if has_acceptor else -ca, vmax=0)
         bg_color = acceptor_cmap(1.0)
 
-        # Domain extents for the right panel
-        dom_xmin = self.config.dom_xmin
-        dom_xmax = self.config.dom_xmax
-        dom_ymin = self.config.dom_ymin
-        dom_ymax = self.config.dom_ymax
+        dom_xmin, dom_xmax = self.config.dom_xmin, self.config.dom_xmax
+        dom_ymin, dom_ymax = self.config.dom_ymin, self.config.dom_ymax
         orientation = self.config.orientation
 
-        # Infer Ws from the rightmost element edge
         all_x = [e.x for e in elements]
         all_r = [e.r for e in elements]
-        ws      = max(x + r for x, r in zip(all_x, all_r))
+        ws = max(x + r for x, r in zip(all_x, all_r))
         src_xmin = -0.05 * max(ws, 1e-3)
-        src_xmax =  1.15 * max(ws, 1e-3)
+        src_xmax = 1.15 * max(ws, 1e-3)
 
         def draw_elements_on(ax, lw=0.8):
             for e in elements:
                 c_val = e.c
-                if c_val >= 0:
-                    color = donor_cmap(donor_norm(c_val)) if has_donor else donor_cmap(0.5)
-                else:
-                    color = acceptor_cmap(acc_norm(c_val)) if has_acceptor else acceptor_cmap(0.5)
+                color = (donor_cmap(donor_norm(c_val)) if c_val >= 0 and has_donor
+                         else acceptor_cmap(acc_norm(c_val)) if c_val < 0 and has_acceptor
+                         else donor_cmap(0.5) if c_val >= 0 else acceptor_cmap(0.5))
 
                 if e.kind == ATElementType.Circle:
                     ax.add_patch(mpatches.Circle(
                         (e.x, e.y), e.r,
-                        facecolor=color, edgecolor="black", linewidth=lw, zorder=3
-                    ))
+                        facecolor=color, edgecolor="black", linewidth=lw, zorder=3))
                 elif e.kind == ATElementType.Ellipse:
                     ax.add_patch(mpatches.Ellipse(
-                        (e.x, e.y),
-                        width=2 * e.r,
-                        height=2 * (e.b if e.b is not None else e.r),
+                        (e.x, e.y), width=2*e.r,
+                        height=2*(e.b if e.b is not None else e.r),
                         angle=math.degrees(e.theta),
-                        facecolor=color, edgecolor="black", linewidth=lw, zorder=3
-                    ))
+                        facecolor=color, edgecolor="black", linewidth=lw, zorder=3))
                 elif e.kind == ATElementType.Line:
                     hl = e.r
                     x1 = e.x - hl * math.cos(e.theta)
@@ -1600,18 +1428,16 @@ class ATSimulation:
                     x2 = e.x + hl * math.cos(e.theta)
                     y2 = e.y + hl * math.sin(e.theta)
                     ax.plot([x1, x2], [y1, y2], color="black",
-                            linewidth=lw * 5, solid_capstyle="round", zorder=2)
+                            linewidth=lw*5, solid_capstyle="round", zorder=2)
                     ax.plot([x1, x2], [y1, y2], color=color,
-                            linewidth=lw * 4, solid_capstyle="round", zorder=3)
+                            linewidth=lw*4, solid_capstyle="round", zorder=3)
 
-        # ── Figure ────────────────────────────────────────────────────────────
         mpl.rcParams.update({"font.size": 16})
-        fig = plt.figure(figsize=(20, 10), dpi=300)
-        gs  = GridSpec(1, 2, figure=fig, width_ratios=[1, 3], wspace=0.08)
+        fig = plt.figure(figsize=(20, 10), dpi=150)  # dpi 150 for speed
+        gs = GridSpec(1, 2, figure=fig, width_ratios=[1, 3], wspace=0.08)
         ax_src = fig.add_subplot(gs[0])
         ax_dom = fig.add_subplot(gs[1])
 
-        # ── Left: source zone ─────────────────────────────────────────────────
         ax_src.set_facecolor(bg_color)
         draw_elements_on(ax_src, lw=0.8)
         ax_src.set_xlim(src_xmin, src_xmax)
@@ -1624,13 +1450,12 @@ class ATSimulation:
         ax_src.set_ylabel(ylabel, fontsize=15)
         ax_src.set_title("Source zone", fontsize=14, pad=4)
         ax_src.axvline(x=0.0, color="gold", linewidth=1.2, linestyle="--", zorder=4)
-        ax_src.axvline(x=ws,  color="gold", linewidth=1.2, linestyle="--", zorder=4)
+        ax_src.axvline(x=ws, color="gold", linewidth=1.2, linestyle="--", zorder=4)
         ax_src.text(0.98, 0.99, f"Ws = {ws:.3f} m",
-                    transform=ax_src.transAxes, ha="right", va="top",
-                    fontsize=10, color="goldenrod",
+                    transform=ax_src.transAxes, ha="right", va="top", fontsize=10,
+                    color="goldenrod",
                     bbox=dict(facecolor="white", alpha=0.4, boxstyle="round,pad=0.2"))
 
-        # ── Right: full domain overview ────────────────────────────────────────
         ax_dom.set_facecolor(bg_color)
         ax_dom.axvspan(0.0, ws, color="gold", alpha=0.18, zorder=1,
                        label=f"Source zone (x ≤ {ws:.3f} m)")
@@ -1644,337 +1469,135 @@ class ATSimulation:
         ax_dom.set_title("Full simulation domain", fontsize=14, pad=4)
         ax_dom.legend(loc="upper right", fontsize=11, framealpha=0.6)
 
-        # ── Shared colorbars ──────────────────────────────────────────────────
         fig.subplots_adjust(bottom=0.18)
-
         if has_donor:
             donor_levels = np.linspace(0, max_conc, 11)
             sm_d = plt.cm.ScalarMappable(cmap="Reds",
                                           norm=mpl.colors.Normalize(0, max_conc))
             sm_d.set_array([])
             cb_d = fig.colorbar(sm_d, ax=[ax_src, ax_dom], ticks=donor_levels,
-                                 label="Electron donor concentration [mg/l]",
-                                 location="bottom", pad=0.02, aspect=60)
+                                label="Electron donor concentration [mg/l]",
+                                location="bottom", pad=0.02, aspect=60)
             cb_d.ax.tick_params(labelsize=11)
 
-        abs_min    = abs(min_conc) if has_acceptor else ca
+        abs_min = abs(min_conc) if has_acceptor else ca
         acc_levels = np.linspace(-abs_min, 0, 9)
         sm_a = plt.cm.ScalarMappable(cmap="Blues_r",
                                       norm=mpl.colors.Normalize(-abs_min, 0))
         sm_a.set_array([])
         cb_a = fig.colorbar(sm_a, ax=[ax_src, ax_dom], ticks=acc_levels,
-                             label="Electron acceptor concentration [mg/l]",
-                             location="bottom",
-                             pad=0.10 if has_donor else 0.02, aspect=60)
+                            label="Electron acceptor concentration [mg/l]",
+                            location="bottom",
+                            pad=0.10 if has_donor else 0.02, aspect=60)
         cb_a.set_ticklabels([f"{abs(t):.0f}" for t in acc_levels])
         cb_a.ax.tick_params(labelsize=11)
 
-        filename_suffix: str = self.generate_filename_suffix()
-        input_filename: str = os.path.join(
-            self.run_dir,
-            f"{self.run_index:04d}_input_{filename_suffix}.pdf"
-        )
+        filename_suffix = self.generate_filename_suffix()
+        input_filename = os.path.join(
+            self.run_dir, f"{self.run_index:04d}_input_{filename_suffix}.pdf")
         plt.savefig(input_filename, bbox_inches="tight")
         plt.close()
         print(f"Input plot saved to: {input_filename}")
 
+    # Result plot
+
     def plot_result(self):
         """
-        Plot the computed concentration field and save it as a PDF.
+        Generate the main concentration field plot and save it as PDF.
 
-        Renders donor (Reds) and acceptor (Blues_r) filled contours with
-        the zero-concentration isoline overlaid. Colorbars and axis labels
-        are adapted for horizontal/vertical orientation. Saved to the run
-        subdirectory as ``<index>_plot_<suffix>.pdf``.
+        Renders the full domain with:
+          - Red filled contours (contourf) for donor concentrations (C > 0)
+          - Blue filled contours for acceptor concentrations (C < 0)
+          - A black line marking the zero-concentration contour (plume
+            envelope), whose total length is reported as "interface length"
+          - Dual colorbars at the bottom for quantitative reading
+
+        For large grids (>10k points), the filled contours are rasterized
+        in the PDF to keep file size manageable — the contourf polygons
+        would otherwise produce very large vector PDFs. The zero-contour
+        line is always rendered as a vector for crispness at any zoom.
+
+        The aspect ratio follows config.plot_aspect: "scaled" uses equal
+        x/y units (useful when the domain is roughly square); anything else
+        uses automatic scaling (useful for long thin plume domains).
+
+        Saves to Results/<run_index>/<run_index>_plot_<suffix>.pdf.
         """
-        max_val: float = np.max(self.result)
-        min_val: float = np.min(self.result)
-        abs_min: float = abs(min_val)
+        max_val = float(np.max(self.result))
+        min_val = float(np.min(self.result))
+        abs_min = abs(min_val)
         xmin, xmax = self.config.dom_xmin, self.config.dom_xmax
         ymin, ymax = self.config.dom_ymin, self.config.dom_ymax
 
         donor_levels = np.linspace(0, max_val, 11)
         acceptor_levels = np.linspace(-abs_min, 0, 9)
 
-        plt.figure(figsize=(16, 9), dpi=300)
+        # Use 150 dpi for diagnostic runs; bump to 300 for publication quality.
+        plot_dpi = 150
+
         mpl.rcParams.update({"font.size": 22})
+        fig, ax = plt.subplots(figsize=(16, 9), dpi=plot_dpi)
+
+        # Rasterize the filled contour collections on large grids to keep
+        # the PDF compact. The zero-contour line stays vector (zorder=6).
+        n_grid_pts = self.result.size
+        rasterize = n_grid_pts > 10_000
+        if rasterize:
+            ax.set_rasterization_zorder(5)
 
         X, Y = np.meshgrid(self.xaxis, self.yaxis)
 
-        donor = plt.contourf(
-            X, Y,
-            self.result,
-            levels=donor_levels,
-            cmap='Reds',
-            extend='max'
+        donor = ax.contourf(
+            X, Y, self.result,
+            levels=donor_levels, cmap='Reds', extend='max',
+            zorder=1 if rasterize else None
         )
-        acceptor = plt.contourf(
-            X, Y,
-            self.result,
-            levels=acceptor_levels,
-            cmap='Blues_r',
-            extend='min'
+        acceptor = ax.contourf(
+            X, Y, self.result,
+            levels=acceptor_levels, cmap='Blues_r', extend='min',
+            zorder=2 if rasterize else None
         )
-        Plume_max = plt.contour(
-            X, Y,
-            self.result,
-            levels=[0],
-            linewidths=2,
-            colors='k'
+        Plume_max = ax.contour(
+            X, Y, self.result,
+            levels=[0], linewidths=2, colors='k',
+            zorder=6 if rasterize else None
         )
 
-        #L_max using Matplotlib (non-deprecated)
         total_length = 0
         for path in Plume_max.get_paths():
             v = path.vertices
-            x, y = v[:, 0], v[:, 1]
-            segment_lengths = np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2)
+            segment_lengths = np.sqrt(np.diff(v[:, 0])**2 + np.diff(v[:, 1])**2)
             total_length += np.sum(segment_lengths)
         print(f"Total interface length: {total_length:.4f}")
 
-        ax = plt.gca()
-        ax.xaxis.set_major_locator(MaxNLocator(nbins=7))  # ~ticks for X
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=7))
         ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
-
-        plt.xlabel("$x$ (m)")
-        plt.ylabel("$z$ (m)" if self.config.orientation == "vertical" else "$y$ (m)")
+        ax.set_xlabel("$x$ (m)")
+        ax.set_ylabel("$z$ (m)" if self.config.orientation == "vertical" else "$y$ (m)")
 
         plt.subplots_adjust(bottom=0.20)
 
-        cbar_donor = plt.colorbar(
-            donor,
-            ticks=donor_levels,
+        cbar_donor = fig.colorbar(
+            donor, ticks=donor_levels,
             label='Electron donor concentration [mg/l]',
-            location='bottom',
-            pad=0.02,
-            aspect=75,
-        )
+            location='bottom', pad=0.02, aspect=75)
         cbar_donor.ax.tick_params(labelsize=14)
 
-        cbar_acceptor = plt.colorbar(
-            acceptor,
-            ticks=acceptor_levels,
+        cbar_acceptor = fig.colorbar(
+            acceptor, ticks=acceptor_levels,
             label='Electron acceptor concentration [mg/l]',
-            location='bottom',
-            pad=0.12,
-            aspect=75,
-        )
+            location='bottom', pad=0.12, aspect=75)
         cbar_acceptor.set_ticklabels([f"{abs(t):.0f}" for t in acceptor_levels])
         cbar_acceptor.ax.tick_params(labelsize=14)
 
         if self.config.plot_aspect == "scaled":
             plt.axis("scaled")
-        else:  # "auto"
-            plt.axis("auto")
 
         plt.tight_layout()
 
-        results_dir: str = os.path.join("Results")
-        os.makedirs(results_dir, exist_ok=True)
-        filename_suffix: str = self.generate_filename_suffix()
-        plot_filename: str = os.path.join(
-            self.run_dir,
-            f"{self.run_index:04d}_plot_{filename_suffix}.pdf"
-        )
-        plt.savefig(plot_filename)
+        filename_suffix = self.generate_filename_suffix()
+        plot_filename = os.path.join(
+            self.run_dir, f"{self.run_index:04d}_plot_{filename_suffix}.pdf")
+        plt.savefig(plot_filename, dpi=plot_dpi)
+        plt.close()
         print(f"Plot saved to: {plot_filename}")
-
-
-    def plot_quiver(self):
-        """
-        Show donor and acceptor flux-like fields overlaid on the
-        donor/acceptor concentration background.
-
-        Interpretation:
-          - self.result is the net concentration field:
-              C > 0 → donor-dominated region
-              C < 0 → acceptor-dominated region
-          - We construct two proxies:
-              C_D(x, y) = max(C, 0)      (donor)
-              C_A(x, y) = max(-C, 0)     (acceptor "deficit" / magnitude below zero)
-          - From these we compute flux-like fields:
-              J_D ∝ -∇C_D  (donor flux)
-              J_A ∝ -∇C_A  (acceptor/oxygen flux)
-
-        Visual encoding:
-          - Background: donor (red) and acceptor (blue) concentration contours
-                        as in plot_result (semi-transparent).
-          - Red quiver:    donor flux ~ -∇C_D, continuous red gradient by |∇C_D|.
-          - Blue quiver:   acceptor flux ~ -∇C_A, continuous blue gradient by |∇C_A|.
-          - Arrow length ∝ |∇C| for each field separately (each rescaled so its
-            own largest arrow has reasonable size).
-
-        This highlights how donor moves down its gradient and how acceptor
-        (oxygen) tends to move towards the reaction zone from the surrounding aquifer.
-        """
-        plt.figure(figsize=(16, 9), dpi=300)
-        mpl.rcParams.update({"font.size": 22})
-
-        # --- Background: donor/acceptor contours (same as plot_result, but with alpha) ---
-        max_val: float = np.max(self.result)
-        min_val: float = np.min(self.result)
-        abs_min: float = abs(min_val)
-
-        donor_levels = np.linspace(0, max_val, 11) if max_val > 0 else [0.0]
-        acceptor_levels = np.linspace(-abs_min, 0, 9) if abs_min > 0 else [0.0]
-
-        X, Y = np.meshgrid(self.xaxis, self.yaxis)
-
-        if max_val > 0:
-            plt.contourf(
-                X, Y,
-                self.result,
-                levels=donor_levels,
-                cmap="Reds",
-                extend="max",
-                alpha=0.5,
-            )
-
-        if abs_min > 0:
-            plt.contourf(
-                X, Y,
-                self.result,
-                levels=acceptor_levels,
-                cmap="Blues_r",
-                extend="min",
-                alpha=0.5,
-            )
-
-        # 0-contour (interface)
-        plt.contour(
-            X, Y,
-            self.result,
-            levels=[0],
-            linewidths=2,
-            colors="k",
-        )
-
-        # Donor and acceptor proxies
-        Cnet = self.result
-        C_donor = np.where(Cnet > 0.0, Cnet, 0.0)
-        C_acceptor = np.where(Cnet < 0.0, -Cnet, 0.0)  # magnitude below zero
-
-        # Gradients for donor and acceptor; -∇C points "downhill"
-        gy_d, gx_d = np.gradient(C_donor, self.config.dom_inc, self.config.dom_inc)
-        gy_a, gx_a = np.gradient(C_acceptor, self.config.dom_inc, self.config.dom_inc)
-        U_d, V_d = -gx_d, -gy_d
-        U_a, V_a = -gx_a, -gy_a
-
-        # Downsample to keep quiver readable (spacing ~1.5 m)
-        step = max(1, int(round(1.5 / max(self.config.dom_inc, 1e-9))))
-        Xq = X[::step, ::step]
-        Yq = Y[::step, ::step]
-        C_dq = C_donor[::step, ::step]
-        C_aq = C_acceptor[::step, ::step]
-        U_dq = U_d[::step, ::step]
-        V_dq = V_d[::step, ::step]
-        U_aq = U_a[::step, ::step]
-        V_aq = V_a[::step, ::step]
-
-        # Masks: only draw arrows where there is a meaningful donor/acceptor presence
-        donor_eps = 1e-6 * max(float(np.nanmax(C_donor)), 1.0)
-        acceptor_eps = 1e-6 * max(float(np.nanmax(C_acceptor)), 1.0)
-        m_d = C_dq > donor_eps
-        m_a = C_aq > acceptor_eps
-
-        # Zero out vectors outside masks
-        U_dq = np.where(m_d, U_dq, 0.0)
-        V_dq = np.where(m_d, V_dq, 0.0)
-        U_aq = np.where(m_a, U_aq, 0.0)
-        V_aq = np.where(m_a, V_aq, 0.0)
-
-        tiny = 1e-12
-
-        # Donor flux scaling and colouring
-        mag_d = np.hypot(U_dq, V_dq)
-        mag_d = np.where(mag_d < tiny, 0.0, mag_d)
-        max_mag_d = float(np.nanmax(mag_d)) if np.any(mag_d > 0.0) else 0.0
-        if max_mag_d > 0.0:
-            max_arrow_len_d = 3.0  # meters
-            sf_d = max_arrow_len_d / max_mag_d
-            U_dq *= sf_d
-            V_dq *= sf_d
-        else:
-            U_dq[:] = 0.0
-            V_dq[:] = 0.0
-
-        # Acceptor flux scaling and colouring
-        mag_a = np.hypot(U_aq, V_aq)
-        mag_a = np.where(mag_a < tiny, 0.0, mag_a)
-        max_mag_a = float(np.nanmax(mag_a)) if np.any(mag_a > 0.0) else 0.0
-        if max_mag_a > 0.0:
-            max_arrow_len_a = 3.0  # meters
-            sf_a = max_arrow_len_a / max_mag_a
-            U_aq *= sf_a
-            V_aq *= sf_a
-        else:
-            U_aq[:] = 0.0
-            V_aq[:] = 0.0
-
-        # Common quiver style
-        qkws = dict(
-            pivot="tail",
-            scale_units="xy",
-            scale=1,
-            width=0.0015,
-            headwidth=2.5,
-            headlength=4,
-            minlength=0,
-        )
-
-        # Donor flux (red gradient)
-        if np.any(m_d):
-            norm_d = mpl.colors.Normalize(vmin=0.0, vmax=max_mag_d if max_mag_d > 0.0 else 1.0)
-            plt.quiver(
-                Xq[m_d], Yq[m_d],
-                U_dq[m_d], V_dq[m_d],
-                mag_d[m_d],
-                cmap="Reds",
-                norm=norm_d,
-                alpha=0.9,
-                **qkws,
-            )
-
-        # Acceptor flux (blue gradient)
-        if np.any(m_a):
-            norm_a = mpl.colors.Normalize(vmin=0.0, vmax=max_mag_a if max_mag_a > 0.0 else 1.0)
-            plt.quiver(
-                Xq[m_a], Yq[m_a],
-                U_aq[m_a], V_aq[m_a],
-                mag_a[m_a],
-                cmap="Blues",
-                norm=norm_a,
-                alpha=0.9,
-                **qkws,
-            )
-
-        # Axes / labels
-        ax = plt.gca()
-        ax.xaxis.set_major_locator(MaxNLocator(nbins=7))
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
-        plt.xlabel("$x$ (m)")
-        plt.ylabel("$z$ (m)" if self.config.orientation == "vertical" else "$y$ (m)")
-
-        # Legend (colour semantics only; magnitudes are relative per field)
-        legend_handles = [
-            Line2D([0], [0], color="red",  lw=3, label="Donor flux ~ -∇C_D"),
-            Line2D([0], [0], color="blue", lw=3, label="Acceptor flux ~ -∇C_A"),
-        ]
-        plt.legend(handles=legend_handles, loc="best")
-
-        if self.config.plot_aspect == "scaled":
-            plt.axis("scaled")
-        else:
-            plt.axis("auto")
-
-        plt.tight_layout()
-
-        results_dir: str = os.path.join("Results")
-        os.makedirs(results_dir, exist_ok=True)
-        filename_suffix: str = self.generate_filename_suffix()
-        plot_filename: str = os.path.join(
-            self.run_dir,
-            f"{self.run_index:04d}_quiver_{filename_suffix}.pdf"
-        )
-        plt.savefig(plot_filename)
-        print(f"Quiver plot saved to: {plot_filename}")

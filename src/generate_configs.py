@@ -89,12 +89,12 @@ FIXED SIMULATION PARAMETERS  (same for all configs)
 import json, os, math, random
 
 #  USER-DEFINED PARAMETERS
-N_CONFIGS   = 100        # total configs to generate
+N_CONFIGS   = 10         # total configs to generate
 WS          = 0.5        # source zone width [m]
 Y_SPAN_MIN  = 5.0        # minimum total vertical source span [m]
 Y_SPAN_MAX  = 25.0       # maximum total vertical source span [m]
-ORIENTATION = "horizontal"  # "horizontal" or "vertical"
-OUTPUT_DIR  = "configs_v8"
+ORIENTATION = "vertical"  # "horizontal" or "vertical"
+OUTPUT_DIR  = "configs_test_batch"
 RANDOM_SEED = 2027       # integer for reproducibility, or None
 
 

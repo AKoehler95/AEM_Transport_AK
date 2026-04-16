@@ -55,14 +55,31 @@ logging.getLogger().addHandler(log_handler)
 
 # Result field helpers
 def fmt_f(v, spec=".2f"):
+    """Format a float with the given format spec, or return '-' if None."""
     return f"{v:{spec}}" if v is not None else "-"
 
 def fmt_cond(v):
+    """Format a condition number in scientific notation, or return '-' if None."""
     return f"{v:.2e}" if v is not None else "-"
 
 
 def _run_one_body(config_path, result, stdout_buf):
-    """Everything that used to live inside the try block of run_one."""
+    """
+    Run a single test configuration and populate the result dict.
+
+    Loads the config, runs the simulation (capturing stdout/stderr),
+    parses solver diagnostics from the output, and evaluates boundary
+    accuracy and concentration range. Mutates ``result`` in-place.
+
+    Parameters
+    ----------
+    config_path : str
+        Path to the JSON configuration file.
+    result : dict
+        Pre-initialised result dict to populate.
+    stdout_buf : io.StringIO
+        Buffer used to capture simulation stdout/stderr.
+    """
     from at_config import ATConfiguration
     from at_simulation import ATSimulation
     from at_element import ATElementType
@@ -172,6 +189,23 @@ def _run_one_body(config_path, result, stdout_buf):
 
 # Single-test runner
 def run_one(config_path):
+    """
+    Run one test configuration with a timeout, returning a result dict.
+
+    Executes ``_run_one_body`` in a daemon thread and joins it within
+    ``TEST_TIMEOUT`` seconds. Sets status to TIMEOUT if the thread is
+    still alive, or ERROR if it raised an exception.
+
+    Parameters
+    ----------
+    config_path : str
+        Path to the JSON configuration file.
+
+    Returns
+    -------
+    dict
+        Populated result dict including status, diagnostics, and timing.
+    """
     result = dict(
         config                       = os.path.basename(config_path),
         status                       = "UNKNOWN",
@@ -234,7 +268,22 @@ def run_one(config_path):
 
 # Summary writers
 def write_summary(all_results, path, fails_only=False):
-    """Write a human-readable summary table to a text file."""
+    """
+    Write a formatted summary table of test results to a text file.
+
+    Includes a header with run metadata, a per-test row for each result
+    (optionally filtered to non-PASS only), aggregate statistics over
+    passing tests, and detailed failure information.
+
+    Parameters
+    ----------
+    all_results : list of dict
+        List of result dicts as returned by ``run_one``.
+    path : str
+        Output file path.
+    fails_only : bool
+        If True, only include non-PASS rows in the table body.
+    """
 
     rows = [r for r in all_results
             if not fails_only or r["status"] not in ("PASS",)]
@@ -333,6 +382,16 @@ def write_summary(all_results, path, fails_only=False):
 
 # Main
 def main():
+    """
+    Discover and run all JSON test configs, then write result files.
+
+    Reads configs from CONFIG_DIR (default: configs_v8/ next to this
+    script, or overridden by argv[1]), runs each sequentially, and
+    writes three output files to RESULTS_DIR:
+      - test_results.json        (machine-readable, all tests)
+      - test_summary.txt         (human-readable table, all tests)
+      - test_summary_fails.txt   (non-PASS tests only)
+    """
     configs = sorted(
         os.path.join(CONFIG_DIR, f)
         for f in os.listdir(CONFIG_DIR)

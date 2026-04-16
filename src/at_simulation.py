@@ -221,6 +221,15 @@ def create_zero_isoline(elem: ATElement) -> ATElement:
 
 class ATSimulation:
     def __init__(self, config: ATConfiguration):
+        """
+        Initialise the simulation with a configuration object.
+
+        Parameters
+        ----------
+        config : ATConfiguration
+            Parsed simulation configuration containing elements, domain
+            bounds, dispersivities, and all physical parameters.
+        """
         self.config: ATConfiguration = config
         self.coeff: np.ndarray = np.zeros((10, 10))
         self.xaxis: np.ndarray = np.arange(0, 10, 1)
@@ -230,6 +239,14 @@ class ATSimulation:
         self.interface_length = None
 
     def run(self):
+        """
+        Execute the full simulation pipeline.
+
+        Steps: validates elements, mirrors them for vertical orientation,
+        solves the Mathieu expansion coefficient system, computes the
+        concentration array in parallel, then generates plots, statistics,
+        and result files saved under Results/<run_index>/.
+        """
         if len(self.config.elements) < 1:
             raise ValueError("Simulation requires at least one element.")
 
@@ -811,13 +828,25 @@ class ATSimulation:
         """
         Solve for Mathieu function expansion coefficients.
 
-        Strategy:
-        1. Try solving all elements in one coupled matrix using the
-           standard lstsq (same as the original code).
-        2. Check the condition number.
-        3. If well-conditioned (cond < 10^14), accept the result.
-        4. If ill-conditioned, split into groups and solve iteratively
-           (using row-scaled lstsq for the sub-group solves).
+        Attempts a single coupled least-squares solve. If the resulting
+        condition number exceeds 1e14, falls back to a decoupled iterative
+        (Gauss-Seidel) solve on sub-groups found by recursive splitting at
+        the largest spatial gap. Results are stored in ``self.coeff``.
+
+        Parameters
+        ----------
+        alpha_l, alpha_t : float
+            Longitudinal and transverse dispersivities.
+        beta : float
+            Exponential decay coefficient.
+        gamma : float
+            Stoichiometric ratio.
+        ca : float
+            Acceptor concentration threshold.
+        n : int
+            Number of Mathieu function terms.
+        M : int
+            Number of control points per element.
         """
         elements = self.config.elements
         num_elements = len(elements)
@@ -883,9 +912,29 @@ class ATSimulation:
                            cond_threshold: float) -> list:
         """
         Recursively split a group of element indices until each sub-group
-        has a well-conditioned solve (condition number < threshold).
+        has a well-conditioned solve (condition number < cond_threshold).
 
-        Splitting respects atomic units and shared elements.
+        Splits at the largest spatial gap between atomic units while
+        always including shared elements (e.g. zero-isolines) in every
+        sub-group. Returns a flat list of groups, each a list of indices.
+
+        Parameters
+        ----------
+        indices : list of int
+            Element indices in the current group.
+        elements : list of ATElement
+        units : list of list of int
+            Atomic units that must not be separated.
+        shared : list of int
+            Indices always included in every sub-group.
+        n, total_terms : int
+        alpha_l, alpha_t, beta, ca, gamma : float
+        cond_threshold : float
+            Maximum acceptable condition number.
+
+        Returns
+        -------
+        list of list of int
         """
         index_set = set(indices)
         contained_units = [u for u in units
@@ -999,6 +1048,27 @@ class ATSimulation:
         return True
 
     def build_row(self, elem, eta: float, psi: float, n: int) -> list:
+        """
+        Build one row of the coefficient matrix for a single element.
+
+        Evaluates the Mathieu basis functions (ce/se for angular, Ke/Ko
+        for radial) at the given elliptic coordinates up to order n and
+        returns the (2n-1) values that form one row of the linear system.
+
+        Parameters
+        ----------
+        elem : ATElement
+        eta : float
+            Radial elliptic coordinate at the control point.
+        psi : float
+            Angular elliptic coordinate at the control point.
+        n : int
+            Number of Mathieu terms.
+
+        Returns
+        -------
+        list of float, length 2n-1
+        """
         row: list = [elem.m.ce(0, psi).real * elem.m.Ke(0, eta).real]
         for j in range(1, n):
             row.append(elem.m.se(j, psi).real * elem.m.Ko(j, eta).real)
@@ -1006,6 +1076,30 @@ class ATSimulation:
         return row
 
     def f_target(self, x: float, elem, ca: float, gamma: float, beta: float):
+        """
+        Compute the RHS target value in transformed F-space for a boundary point.
+
+        Converts the prescribed element concentration into the F-space
+        equivalent (accounting for donor/acceptor sign conventions and
+        image-element negation) required by the least-squares system.
+
+        Parameters
+        ----------
+        x : float
+            x-coordinate of the control point.
+        elem : ATElement
+            Element whose boundary condition is being enforced.
+        ca : float
+            Acceptor concentration threshold.
+        gamma : float
+            Stoichiometric ratio.
+        beta : float
+            Exponential decay coefficient.
+
+        Returns
+        -------
+        float or None
+        """
         Ci: float = elem.c
         is_image = elem.id.lower().startswith("image")
 
@@ -1029,6 +1123,24 @@ class ATSimulation:
             return ca * np.exp(-beta * x)
 
     def calc_c(self, x: float, y: float) -> float:
+        """
+        Evaluate the concentration field at a single point (x, y).
+
+        Sums the Mathieu expansion over all elements using the solved
+        coefficients, applies the exponential factor, and maps the result
+        to the donor/acceptor concentration via the ca/gamma transform.
+        Inside element boundaries the prescribed concentration is returned.
+
+        Parameters
+        ----------
+        x, y : float
+            Coordinates at which to evaluate the concentration.
+
+        Returns
+        -------
+        float
+            Concentration in mg/l.
+        """
         n: int = self.config.num_terms
         alpha_l: float = self.config.alpha_l
         alpha_t: float = self.config.alpha_t
@@ -1099,6 +1211,13 @@ class ATSimulation:
 
 
     def generate_filename_suffix(self) -> str:
+        """
+        Build a descriptive filename suffix encoding key run parameters.
+
+        Returns a string of the form
+        ``<n>-elements_<t>-terms_acceptor-<yes|no>_inc-<inc>``
+        used to uniquely label output files.
+        """
         n_elements: int = len(self.config.elements)
         num_terms: int = self.config.num_terms
         inc: float = self.config.dom_inc
@@ -1109,6 +1228,22 @@ class ATSimulation:
         return f"{n_elements}-elements_{num_terms}-terms_{acceptor_str}_inc-{inc}"
 
     def get_next_run_index(self, results_dir: str) -> int:
+        """
+        Return the next sequential run index for output naming.
+
+        Scans ``results_dir`` for existing zero-padded 4-digit subdirectories
+        and returns one greater than the highest found (starting at 1 if none
+        exist).
+
+        Parameters
+        ----------
+        results_dir : str
+            Path to the Results directory.
+
+        Returns
+        -------
+        int
+        """
         if not os.path.exists(results_dir):
             return 1
 
@@ -1172,6 +1307,13 @@ class ATSimulation:
             print("Interface length: -")
 
     def check_domain_adequacy(self):
+        """
+        Warn if L_max reaches close to the x-domain boundary.
+
+        Prints a warning when L_max exceeds 95 % of the domain width,
+        indicating the plume may be artificially truncated and a larger
+        domain should be used.
+        """
         if self.L_max is None:
             return
 
@@ -1189,6 +1331,14 @@ class ATSimulation:
             print(warning_msg)
 
     def check_concentration_range(self):
+        """
+        Warn if computed concentrations fall outside the physically expected range.
+
+        Compares the result grid against the element concentration bounds
+        (with a 1 % tolerance). Prints a summary if more than 1 % of grid
+        points are out of range, which may indicate numerical issues or
+        insufficient resolution.
+        """
         if len(self.config.elements) == 0:
             return
 
@@ -1230,6 +1380,19 @@ class ATSimulation:
             print(f"All concentration values within expected range [{min_expected:.3f}, {max_expected:.3f}] mg/l")
 
     def print_statistics(self, cpu_time):
+        """
+        Compute and save boundary-accuracy statistics for each element.
+
+        Samples 360 points along each element's boundary, evaluates the
+        concentration, and reports min/max/mean/std. Saves a text stats
+        file (config + results) and a PDF absolute-error plot to the run
+        subdirectory.
+
+        Parameters
+        ----------
+        cpu_time : datetime.timedelta
+            Elapsed computation time to record in the stats file.
+        """
         from math import cos, sin, pi
 
         phi = np.linspace(0, 2 * pi, 360)
@@ -1516,6 +1679,14 @@ class ATSimulation:
         print(f"Input plot saved to: {input_filename}")
 
     def plot_result(self):
+        """
+        Plot the computed concentration field and save it as a PDF.
+
+        Renders donor (Reds) and acceptor (Blues_r) filled contours with
+        the zero-concentration isoline overlaid. Colorbars and axis labels
+        are adapted for horizontal/vertical orientation. Saved to the run
+        subdirectory as ``<index>_plot_<suffix>.pdf``.
+        """
         max_val: float = np.max(self.result)
         min_val: float = np.min(self.result)
         abs_min: float = abs(min_val)

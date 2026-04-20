@@ -15,7 +15,7 @@ simulating steady-state contaminant plumes in groundwater. The core workflow is:
   5. Post-process: find L_max (plume length), validate, plot, save results
 
 The module uses multiprocessing to parallelize the grid evaluation and
-vectorized Mathieu function calls to amortize numpy overhead across all
+vectorized Mathieu function calls to reduce numpy overhead across all
 expansion orders simultaneously.
 """
 

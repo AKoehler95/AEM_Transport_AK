@@ -522,16 +522,13 @@ class ATSimulation:
 
         For each element pair (i, j) in the group, evaluates element j's
         Mathieu basis functions at all of element i's control points in a
-        single batched call. This reduces the numpy/scipy overhead across
-        all control points, giving ~10× speedup over the scalar per-point
-        approach.
+        single batched call.
 
         Cross-element blocks whose entries are all below cross_term_floor
         are zeroed out — these are contributions from distant elements that
         are numerically negligible and would only introduce noise.
 
-        Self-element blocks along the diagonal use eta=0 for line elements
-        (which is the line's own surface in its local coordinates).
+        Self-element blocks along the diagonal use eta=0 for line elements.
         """
         group_elements = [elements[k] for k in group_indices]
         ng = len(group_elements)

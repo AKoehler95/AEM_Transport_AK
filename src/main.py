@@ -19,10 +19,10 @@ CONFIG_PATH = "simulation_config.json"
 INPUT_FILE       = "input_values_new.txt"
 OUTPUT_FILE      = "output_values.txt"
 STATS_FILE       = "stats_values.txt"
-ORIENTATION      = "horizontal"   # "horizontal" or "vertical"
-ELEM_KIND        = "Line"       #Circle or Line
-SOURCE_THICKNESS_MODIFIER = 1.0   # set between 0.0 and 1.0 to determine what percentage of
-                                   # aquifer thickness is radius of source thickness
+ORIENTATION      = "horizontal"     # "horizontal" or "vertical"
+ELEM_KIND        = "Line"           # Circle or Line or Ellipse
+SOURCE_THICKNESS_MODIFIER = 1.0     # set between 0.0 and 1.0 to determine what percentage of
+                                    # aquifer thickness is radius of source thickness
 
 # New: which parameter to estimate and optional bounds
 # Options: "alpha_t", "alpha_l", "r", "C0", "ca", "gamma"

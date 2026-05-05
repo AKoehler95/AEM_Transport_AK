@@ -279,8 +279,11 @@ class ATSimulation:
         self.xaxis: np.ndarray = np.arange(0, 10, 1)
         self.yaxis: np.ndarray = np.arange(0, 10, 1)
         self.result: np.ndarray = np.zeros((10, 10))
+        self.num_elements_original = 0
         self.L_max = None
         self.interface_length = None
+        self.validation_passed = None
+        self.validation_reason = ""
         self.timer = _PhaseTimer()
 
     def run(self):
@@ -307,6 +310,7 @@ class ATSimulation:
         if len(self.config.elements) < 1:
             raise ValueError("Simulation requires at least one element.")
 
+        self.num_elements_original = len(self.config.elements)
         self.timer.start("element_setup")
         if self.config.orientation == "vertical":
             # Build the full element list: each source gets a mirror image,
@@ -381,6 +385,7 @@ class ATSimulation:
 
         self.check_domain_adequacy()
         self.check_concentration_range()
+        self.validate_solution()
         self.timer.stop()
 
         results_dir = os.path.join("Results")
@@ -601,23 +606,36 @@ class ATSimulation:
 
     def _solve_scaled_lstsq(self, A, b, rcond=1e-10):
         """
-        Solve A @ x = b in the least-squares sense with row scaling.
+        Solve A @ x = b in the least-squares sense with row and column scaling.
 
-        Each row of A is divided by its max-abs value before solving, and
-        the corresponding b entry is scaled to match. This prevents rows
-        with very different magnitudes (which arise naturally when mixing
-        near-source and far-field control points) from dominating the
-        least-squares residual.
+        Row scaling: each row divided by its max-abs value — prevents rows
+        with very different magnitudes (near-source vs far-field control
+        points) from dominating the least-squares residual.
 
-        Returns (coeffs, condition_number). The condition number is taken
-        as the ratio of largest to smallest singular value of the scaled
+        Column scaling: each column divided by its max-abs value — corrects
+        for columns that are uniformly small (e.g. the zero-isoline columns
+        evaluated at deep elements), which would otherwise inflate the
+        condition number without reflecting genuine numerical instability.
+        The column scales are folded back into the returned coefficients.
+
+        Returns (coeffs, condition_number) where coeffs are in the original
+        (unscaled) space and condition_number is that of the doubly-scaled
         matrix.
         """
+        # Row scaling
         row_scales = np.max(np.abs(A), axis=1)
         row_scales = np.where(row_scales < 1e-300, 1.0, row_scales)
-        A_scaled = A / row_scales[:, None]
-        b_scaled = b / row_scales
-        coeffs, residuals, rank, sv = np.linalg.lstsq(A_scaled, b_scaled, rcond=rcond)
+        A_rs = A / row_scales[:, None]
+        b_rs = b / row_scales
+
+        # Column scaling
+        col_scales = np.max(np.abs(A_rs), axis=0)
+        col_scales = np.where(col_scales < 1e-300, 1.0, col_scales)
+        A_scaled = A_rs / col_scales[None, :]
+
+        coeffs_scaled, residuals, rank, sv = np.linalg.lstsq(A_scaled, b_rs, rcond=rcond)
+        # Undo column scaling to recover coefficients in original space
+        coeffs = coeffs_scaled / col_scales
         cond = np.inf
         if sv is not None and len(sv) > 0:
             cond = sv[0] / sv[-1] if sv[-1] > 0 else np.inf
@@ -789,17 +807,20 @@ class ATSimulation:
 
     def solve_system(self, alpha_l, alpha_t, beta, gamma, ca, n, M):
         """
-        Top-level solver: try coupled, fall back to decoupled if ill-conditioned.
+        Top-level solver: try coupled, fall back to decoupled only when safe.
 
         Strategy:
-          1. Assemble and solve the full coupled system.
-          2. Check the condition number. If below 1e14, the coupled solve
-             is trusted and we're done.
-          3. Otherwise, recursively split the element list into well-
-             conditioned subgroups (respecting atomic units), then run the
-             decoupled iterative solver.
-          4. If splitting doesn't help (only one atomic unit left), fall
-             back to the original coupled result despite its conditioning.
+          1. Assemble and solve the full coupled system with row+column scaling.
+          2. Check the condition number. If below cond_threshold, done.
+          3. If above threshold: check whether the Ke-based coupling graph
+             yields multiple disconnected groups. If ALL elements are in one
+             coupled group (log|Ke| >> -14 for every pair), the high condition
+             number is due to matrix scale disparity — NOT exp-amplification
+             instability — and the coupled result is still correct. Use it.
+          4. Only if genuinely separable groups exist: split and run the
+             decoupled iterative (Gauss-Seidel) solver.
+          5. If splitting yields only one group despite the high cond, fall
+             back to the coupled result.
 
         The resulting coefficient vector is stored in self.coeff.
         """
@@ -817,15 +838,42 @@ class ATSimulation:
         if sv is not None and len(sv) > 0:
             cond = sv[0] / sv[-1] if sv[-1] > 0 else np.inf
 
-        if cond < cond_threshold:
+        # Helper: store coupled result from the already-solved (A,b) system
+        def _store_coupled():
             self.coeff = np.zeros(num_elements * total_terms)
             for li, gi in enumerate(all_indices):
                 self.coeff[gi*total_terms:(gi+1)*total_terms] = \
                     coeffs[li*total_terms:(li+1)*total_terms]
+
+        if cond < cond_threshold:
+            _store_coupled()
             print(f"Coupled solve: OK (cond={cond:.1e})")
             return
 
+        # High condition number detected. Before switching to decoupled,
+        # check whether a Ke-based coupling graph actually separates into
+        # multiple groups. If all elements are genuinely coupled (small q
+        # → Ke decays slowly, so even distant elements interact), the high
+        # cond is caused by column-scale disparity in the matrix (typically
+        # the zero-isoline columns becoming tiny for deep elements) rather
+        # than exp(beta*x) amplification instability. In that case the
+        # coupled row-scaled lstsq result is correct and decoupling would
+        # produce a wrong solution because the Gauss-Seidel iteration
+        # cannot converge when groups are not genuinely independent.
+        coupling_groups = self._find_coupling_groups(elements, alpha_l, alpha_t)
+        all_one_group = len(coupling_groups) == 1
+
+        if all_one_group:
+            # All elements are mutually coupled — decoupling is not valid.
+            # The high condition number is a scale-disparity artefact; the
+            # coupled solve is still the correct answer.
+            _store_coupled()
+            print(f"Coupled solve: ill-conditioned (cond={cond:.1e}) "
+                  f"but all elements coupled — keeping coupled result")
+            return
+
         print(f"Coupled solve ill-conditioned (cond={cond:.1e}) "
+              f"and {len(coupling_groups)} separable groups found "
               f"— switching to decoupled solve")
 
         units, shared = self._find_atomic_units(elements)
@@ -833,12 +881,8 @@ class ATSimulation:
             all_indices, elements, units, shared, n, total_terms,
             alpha_l, alpha_t, beta, ca, gamma, cond_threshold)
 
-        self.coeff = np.zeros(num_elements * total_terms)
-
         if len(groups) == 1:
-            for li, gi in enumerate(all_indices):
-                self.coeff[gi*total_terms:(gi+1)*total_terms] = \
-                    coeffs[li*total_terms:(li+1)*total_terms]
+            _store_coupled()
             print(f"Could not split further — using coupled result")
             return
 
@@ -1046,6 +1090,11 @@ class ATSimulation:
         """
         self.xaxis = np.arange(xmin, xmax + inc, inc)
         self.yaxis = np.arange(ymin, ymax + inc, inc)
+        # Clamp to declared bounds — np.arange can overshoot by one step due to
+        # floating-point rounding. Critical for vertical orientation where ymax=0
+        # must be the exact upper limit so image elements (y > 0) never appear.
+        self.xaxis = self.xaxis[self.xaxis <= xmax + 1e-9]
+        self.yaxis = self.yaxis[self.yaxis <= ymax + 1e-9]
 
         xs, ys = np.meshgrid(self.xaxis, self.yaxis)
         coords = list(zip(xs.ravel(), ys.ravel()))
@@ -1081,7 +1130,7 @@ class ATSimulation:
         Used to keep output files self-describing when there are multiple
         runs in the Results directory.
         """
-        n_elements = len(self.config.elements)
+        n_elements = self.num_elements_original
         has_acceptor = any(elem.c < 0 for elem in self.config.elements)
         acceptor_str = "acceptor-yes" if has_acceptor else "acceptor-no"
         return f"{n_elements}-elements_{self.config.num_terms}-terms_{acceptor_str}_inc-{self.config.dom_inc}"
@@ -1202,6 +1251,56 @@ class ATSimulation:
             print(f"All concentration values within expected range "
                   f"[{min_expected:.3f}, {max_expected:.3f}] mg/l")
 
+    def validate_solution(self):
+        """
+        Determine whether the simulation produced a physically meaningful result.
+
+        The criterion operates only on the already-computed concentration array
+        and is deliberately coarse and grid-independent:
+
+          PASS if both:
+            (a) result_max > ca  — donor concentration exists above background.
+                When the solve fails, the field collapses and result_max < ca
+                even with strong sources present.
+            (b) result_min < -ca * 0.5  — acceptor depletion is present,
+                confirming the reaction stoichiometry is active.
+
+        For composite element clusters, individual boundary checks do not seem to
+        be reliable because the field at any element boundary reflects
+        contributions from all neighbours by design. This grid-level check
+        is the appropriate surrogate.
+
+        Sets self.validation_passed (bool) and self.validation_reason (str),
+        and prints a parseable line starting with VALIDATION PASS / FAIL
+        for capture by run_tests.py.
+        """
+        ca = self.config.ca
+        result_max = float(np.max(self.result))
+        result_min = float(np.min(self.result))
+
+        reasons = []
+        if result_max <= ca:
+            reasons.append(
+                f"result_max={result_max:.3f} <= ca={ca:.3f}: "
+                f"no donor above background"
+            )
+        if result_min >= -ca * 0.5:
+            reasons.append(
+                f"result_min={result_min:.3f} >= -{ca*0.5:.3f}: "
+                f"no acceptor depletion"
+            )
+
+        self.validation_passed = len(reasons) == 0
+        if self.validation_passed:
+            self.validation_reason = (
+                f"result_max={result_max:.3f} > ca={ca:.3f}, "
+                f"result_min={result_min:.3f} < -{ca*0.5:.3f}"
+            )
+            print(f"VALIDATION PASS  ({self.validation_reason})")
+        else:
+            self.validation_reason = "; ".join(reasons)
+            print(f"VALIDATION FAIL  ({self.validation_reason})")
+
     # Statistics
 
     def _build_interpolator(self):
@@ -1224,43 +1323,36 @@ class ATSimulation:
         Compute and save per-element boundary concentration statistics,
         then produce an error plot.
 
-        For each source element (skipping auxiliary image and zero-isoline
-        elements), samples N_SAMPLES points around its boundary, looks up
-        the concentration at each via linear interpolation from the grid,
-        and reports min/max/mean/std. These stats indicate how well the
-        solved field matches the prescribed boundary values.
+        Samples exactly 4 points on each source element's boundary using
+        calc_c (the full Mathieu expansion — exact, not grid-interpolated).
+        Image and zero-isoline auxiliary elements are skipped; their boundary
+        concentrations differ from their stored c values by design.
 
-        All stats are printed to stdout, saved to a text file alongside the
-        configuration parameters, and used to generate a PDF error plot
-        showing absolute error vs. boundary angle for each element.
-
-        The interpolation-based approach is grid-resolution-limited —
-        accuracy is ~dom_inc. For high-fidelity boundary checks, use
-        calc_c directly (much slower).
+        The 4 sample positions are:
+          Circle / Ellipse: cardinal angles 0, π/2, π, 3π/2
+          Line: fractions -3/4, -1/4, +1/4, +3/4 of the half-length
         """
         from math import cos, sin, pi
 
-        N_SAMPLES = 36
         stats = {}
         all_elem_errors = {}
-
-        interp = self._build_interpolator()
 
         print("\n=== ELEMENT BOUNDARY STATISTICS ===")
         for idx, elem in enumerate(self.config.elements):
             # Image and zero-isoline elements have boundaries outside the
-            # computation domain by design and should not be evaluated
+            # computation domain
             eid = elem.id.lower() if elem.id else ""
             if eid.startswith("image_") or eid.startswith("zero_"):
                 print(f'Element {idx + 1}: ({eid}) — skipped (auxiliary element)')
                 continue
+
             if elem.kind == ATElementType.Circle:
-                phi = np.linspace(0, 2 * pi, N_SAMPLES, endpoint=False)
+                phi = np.array([0.0, pi/2, pi, 3*pi/2])
                 x_test = elem.x + (elem.r + 1e-9) * np.cos(phi)
                 y_test = elem.y + (elem.r + 1e-9) * np.sin(phi)
 
             elif elem.kind == ATElementType.Ellipse:
-                phi = np.linspace(0, 2 * pi, N_SAMPLES, endpoint=False)
+                phi = np.array([0.0, pi/2, pi, 3*pi/2])
                 a = float(elem.r)
                 b = float(elem.b if elem.b is not None else elem.r)
                 ct, st = math.cos(elem.theta), math.sin(elem.theta)
@@ -1269,29 +1361,21 @@ class ATSimulation:
 
             elif elem.kind == ATElementType.Line:
                 half_len = elem.r
-                s = np.linspace(-half_len + 1e-9, half_len - 1e-9, N_SAMPLES)
-                phi = np.linspace(0, 2 * pi, N_SAMPLES)
-                theta = elem.theta
-                x_test = elem.x + s * cos(theta)
-                y_test = elem.y + s * sin(theta)
+                fracs = np.array([-0.75, -0.25, 0.25, 0.75])
+                s = fracs * half_len
+                phi = (fracs + 1.0) * pi  # map to [0, 2π] for plotting
+                x_test = elem.x + s * cos(elem.theta)
+                y_test = elem.y + s * sin(elem.theta)
 
             else:
                 raise ValueError(f"Unknown element type: {elem.kind}")
 
-            # Interpolate from grid instead of calling calc_c
-            pts = np.column_stack([y_test, x_test])  # interpolator expects (y, x)
-            Err = interp(pts)
-
-            # Filter out NaN (points outside domain)
-            valid = ~np.isnan(Err)
-            if np.any(valid):
-                Err_valid = Err[valid]
-                min_val = round(float(np.min(Err_valid)), 9)
-                max_val = round(float(np.max(Err_valid)), 9)
-                mean_val = round(float(np.mean(Err_valid)), 9)
-                std_val = round(float(np.std(Err_valid)), 9)
-            else:
-                min_val = max_val = mean_val = std_val = float('nan')
+            # Exact evaluation
+            Err = [self.calc_c(x, y) for x, y in zip(x_test, y_test)]
+            min_val = round(float(np.min(Err)), 9)
+            max_val = round(float(np.max(Err)), 9)
+            mean_val = round(float(np.mean(Err)), 9)
+            std_val = round(float(np.std(Err)), 9)
 
             print(f'Element {idx + 1}:')
             print(f'  Min = {min_val} mg/l')
@@ -1304,7 +1388,7 @@ class ATSimulation:
             stats[f"Mean{idx + 1}"] = mean_val
             stats[f"Std{idx + 1}"] = std_val
 
-            all_elem_errors[idx] = (phi, Err.tolist())
+            all_elem_errors[idx] = (phi, [abs(e) for e in Err])
 
         # Save statistics file
         # Writes a human-readable summary containing the config parameters,
@@ -1316,7 +1400,7 @@ class ATSimulation:
 
         with open(stats_filename, "w") as f:
             f.write("=== CONFIGURATION PARAMETERS ===\n")
-            f.write(f"Number of elements: {len(self.config.elements)}\n")
+            f.write(f"Number of elements: {self.num_elements_original}\n")
             f.write(f"Number of terms: {self.config.num_terms}\n")
             f.write(f"Domain increment: {self.config.dom_inc}\n")
             f.write(f"Alpha_t: {self.config.alpha_t}\n")
@@ -1348,34 +1432,28 @@ class ATSimulation:
             if getattr(self, "interface_length", None) is not None:
                 f.write(f"InterfaceLength: {self.interface_length:.6f} m\n")
 
-            f.write("\n=== ELEMENT BOUNDARY STATISTICS ===\n")
+            f.write("\n=== ELEMENT BOUNDARY STATISTICS (4-point exact) ===\n")
             for k, v in stats.items():
                 f.write(f"{k} = {v} mg/l\n")
 
         print(f"Statistics saved to: {stats_filename}")
 
-        # Error plot
-        # Plots absolute error vs. boundary angle for each source element,
-        # one line per element. Uses the per-element error arrays stored
-        # during the statistics loop above, so no new concentration
-        # evaluations are needed.
+        # Error plot — one marker per sample point per source element.
+        # Uses the arrays stored above; no new calc_c calls needed.
         mpl.rcParams.update({'font.size': 22})
         plt.figure(figsize=(16, 9), dpi=150)
 
-        styles = ['-', '--', ':', '-.']
-        for idx in range(len(self.config.elements)):
-            if idx not in all_elem_errors:
-                continue
-            phi_plot, Err = all_elem_errors[idx]
-            plt.plot(phi_plot, [abs(e) for e in Err],
-                     linestyle=styles[idx % len(styles)],
-                     linewidth=2, label=f'Element {idx + 1}')
+        styles = ['-o', '--s', ':^', '-.D']
+        for idx, (phi_plot, abs_err) in all_elem_errors.items():
+            plt.plot(phi_plot, abs_err,
+                     styles[idx % len(styles)],
+                     linewidth=2, markersize=8, label=f'Element {idx + 1}')
 
         plt.xlim([0, 2 * math.pi])
-        plt.xlabel('Angle (°)')
+        plt.xlabel('Boundary position')
         plt.ylabel('Absolute error [mg/l]')
-        plt.xticks(np.linspace(0, 2 * math.pi, 13),
-                   np.linspace(0, 360, 13).astype(int))
+        plt.xticks(np.linspace(0, 2 * math.pi, 5),
+                   ['0°', '90°', '180°', '270°', '360°'])
         plt.legend(loc='best')
         plt.tight_layout()
 

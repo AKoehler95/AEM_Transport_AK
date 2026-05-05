@@ -11,7 +11,7 @@ diagnostics, and key outputs (L_max, concentration range, etc.).
 
 Outputs (in ./results/):
   test_results.json   — machine-readable per-test data
-  test_summary.txt    — human-readable formatted table
+  test_summary.txt    — human-readable formatted table + analytics
 
 Usage:
     python run_tests.py [config_dir]
@@ -27,6 +27,8 @@ import threading
 import traceback
 import logging
 import io
+import math
+import re
 import numpy as np
 from contextlib import redirect_stdout, redirect_stderr
 from datetime import datetime
@@ -37,7 +39,7 @@ matplotlib.use('Agg')
 # Paths
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR  = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SCRIPT_DIR, "configs_test_batch")
-RESULTS_DIR = os.path.join(SCRIPT_DIR, "results")
+RESULTS_DIR = os.path.join(SCRIPT_DIR, "results_test_batch")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Maximum wall-clock time per test before it is marked TIMEOUT.
@@ -53,6 +55,21 @@ logging.getLogger().addHandler(log_handler)
 def fmt_f(v, spec=".2f"):
     """Format a numeric value with the given format spec, or '-' if None."""
     return f"{v:{spec}}" if v is not None else "-"
+
+
+def _parse_config_meta(config_name):
+    """Extract archetype letter and cluster count from a config filename.
+
+    Expected format: {A-J}{num}_{n_elems}circ_{n_clusters}cl[.json]
+    e.g. A001_45circ_3cl.json -> ('A', 3)
+    Returns ('?', None) for unrecognised names.
+    """
+    arch = config_name[0].upper() if config_name else "?"
+    if arch not in "ABCDEFGHIJ":
+        arch = "?"
+    m = re.search(r'_(\d+)cl', config_name)
+    n_cl = int(m.group(1)) if m else None
+    return arch, n_cl
 
 
 def _run_one_body(config_path, result, stdout_buf):
@@ -95,18 +112,36 @@ def _run_one_body(config_path, result, stdout_buf):
                     s.split("cond=")[1].strip().rstrip(")"))
             except Exception:
                 pass
-        elif "ill-conditioned" in s and "cond=" in s:
+        elif "ill-conditioned" in s and "all elements coupled" in s and "cond=" in s:
+            # High cond but coupling check forced the coupled result — still coupled
+            result["solve_method"] = "coupled*"
+            try:
+                result["condition_number"] = float(
+                    s.split("cond=")[1].split(")")[0].strip())
+            except Exception:
+                pass
+        elif "ill-conditioned" in s and "separable groups" in s and "cond=" in s:
             result["solve_method"] = "decoupled"
             try:
                 result["condition_number"] = float(
                     s.split("cond=")[1].split(")")[0].strip())
             except Exception:
                 pass
+        elif "Could not split further" in s:
+            result["solve_method"] = "coupled*"
         elif s.startswith("Split into"):
             try:
                 result["num_groups"] = int(s.split()[2])
             except Exception:
                 pass
+
+    # Parse validation result
+    for ln in (stdout_text or "").splitlines():
+        s = ln.strip()
+        if s.startswith("VALIDATION PASS"):
+            result["validation_passed"] = True
+        elif s.startswith("VALIDATION FAIL"):
+            result["validation_passed"] = False
 
     # Record simulation outputs
     result["L_max"]            = sim.L_max
@@ -138,6 +173,7 @@ def run_one(config_path):
         num_groups=None,
         L_max=None,
         interface_length=None,
+        validation_passed=None,
         result_min=None,
         result_max=None,
         phase_timings=None,
@@ -181,19 +217,343 @@ def run_one(config_path):
     return result
 
 
+def _analyse_results(all_results):
+    """
+    Derive a structured analytics report from all test results.
+
+    Examines solver behaviour, timing breakdown, plume size distribution,
+    and concentration range anomalies. Returns a list of text lines ready
+    to append to the summary file.
+
+    Analytics sections:
+      1. Solver strategy breakdown — how often coupled vs decoupled fires,
+         and whether decoupled solve is reliably faster or slower.
+      2. Timing hotspots — which pipeline phase dominates total runtime,
+         and which individual tests consume disproportionate time.
+      3. L_max distribution — histogram-style bucketing of plume lengths
+         and identification of the longest / shortest cases.
+      4. Concentration range anomalies — flags cases where result_min or
+         result_max fall far outside the physically expected window, which
+         typically indicates numerical blowup or solver divergence.
+      5. Grid time vs plume length — correlation analysis: long plumes
+         require multiple domain extensions and dominate conc_array time.
+      6. Conditioning vs solve time — whether high condition number
+         predicts slow solves, useful for tuning the cond_threshold.
+    """
+    done = [r for r in all_results if r["status"] == "DONE"]
+    if not done:
+        return ["No completed tests to analyse."]
+
+    lines = []
+    sep = "-" * 80
+
+    # Solver strategy breakdown
+    lines.append("\n" + "=" * 80)
+    lines.append("ANALYTICS")
+    lines.append("=" * 80)
+
+    # Validation summary
+    v_passed  = [r for r in done if r.get("validation_passed") is True]
+    v_failed  = [r for r in done if r.get("validation_passed") is False]
+    v_unknown = [r for r in done if r.get("validation_passed") is None]
+
+    lines.append("\n0. Solution validation  (result_max > ca  AND  result_min < -ca/2)")
+    lines.append(sep)
+    lines.append(f"  PASS    : {len(v_passed):3d} / {len(done)}  ({100*len(v_passed)/len(done):.0f}%)")
+    lines.append(f"  FAIL    : {len(v_failed):3d} / {len(done)}  ({100*len(v_failed)/len(done):.0f}%)")
+    if v_unknown:
+        lines.append(f"  Unknown : {len(v_unknown):3d}")
+    if v_failed:
+        lines.append("\n  Failed runs:")
+        for r in v_failed:
+            lines.append(
+                f"    {r['config']:<45}  "
+                f"method={r.get('solve_method','?'):<10}  "
+                f"cond={fmt_f(r.get('condition_number'), '.2e')}  "
+                f"result_max={fmt_f(r.get('result_max'), '.2f')}"
+            )
+
+    coupled   = [r for r in done if r.get("solve_method") == "coupled"]
+    decoupled = [r for r in done if r.get("solve_method") == "decoupled"]
+    unknown   = [r for r in done if not r.get("solve_method")]
+
+    lines.append("\n1. Solver strategy")
+    lines.append(sep)
+    lines.append(f"  Coupled   : {len(coupled):3d} / {len(done)}  ({100*len(coupled)/len(done):.0f}%)")
+    lines.append(f"  Decoupled : {len(decoupled):3d} / {len(done)}  ({100*len(decoupled)/len(done):.0f}%)")
+    if unknown:
+        lines.append(f"  Unknown   : {len(unknown):3d} (condition number not captured)")
+
+    def _mean(vals):
+        return sum(vals) / len(vals) if vals else 0.0
+
+    if coupled and decoupled:
+        ct_times = [r["wall_time_s"] for r in coupled  if r["wall_time_s"]]
+        dt_times = [r["wall_time_s"] for r in decoupled if r["wall_time_s"]]
+        lines.append(f"\n  Wall time  — coupled mean: {_mean(ct_times):.1f}s  "
+                     f"decoupled mean: {_mean(dt_times):.1f}s")
+
+        ct_solve = [r["phase_timings"].get("solve_system", 0)
+                    for r in coupled if r.get("phase_timings")]
+        dt_solve = [r["phase_timings"].get("solve_system", 0)
+                    for r in decoupled if r.get("phase_timings")]
+        lines.append(f"  Solve time — coupled mean: {_mean(ct_solve):.1f}s  "
+                     f"decoupled mean: {_mean(dt_solve):.1f}s")
+
+    # Pass/fail breakdown by solver method
+    for method_label, group in [("Coupled", coupled), ("Decoupled", decoupled)]:
+        if not group:
+            continue
+        gp = sum(1 for r in group if r.get("validation_passed") is True)
+        gf = sum(1 for r in group if r.get("validation_passed") is False)
+        lines.append(f"  {method_label} pass/fail: {gp} PASS  {gf} FAIL  "
+                     f"({100*gp/len(group):.0f}% pass rate)")
+
+    # Timing hotspots
+    lines.append("\n2. Timing breakdown")
+    lines.append(sep)
+
+    phase_names = set()
+    for r in done:
+        if r.get("phase_timings"):
+            phase_names.update(r["phase_timings"].keys())
+
+    # Total grid time (initial + extensions)
+    grid_phases = [p for p in phase_names if "conc_array" in p]
+    total_grid = []
+    for r in done:
+        if r.get("phase_timings"):
+            tg = sum(r["phase_timings"].get(p, 0) for p in grid_phases)
+            total_grid.append(tg)
+
+    total_wall = [r["wall_time_s"] for r in done if r["wall_time_s"]]
+    if total_grid and total_wall:
+        lines.append(f"  Grid evaluation (summed across all passes): "
+                     f"mean={_mean(total_grid):.1f}s  "
+                     f"mean wall={_mean(total_wall):.1f}s  "
+                     f"(extensions multiply grid time for long plumes)")
+
+    # Extension frequency
+    ext_counts = {1: 0, 2: 0, 3: 0}
+    for r in done:
+        if r.get("phase_timings"):
+            for k in range(1, 4):
+                if r["phase_timings"].get(f"conc_array_ext{k}", 0) > 0:
+                    ext_counts[k] += 1
+    lines.append(f"  Domain extension frequency: "
+                 f"≥1 ext: {ext_counts[1]} tests  "
+                 f"≥2 ext: {ext_counts[2]} tests  "
+                 f"≥3 ext: {ext_counts[3]} tests")
+
+    # Slowest tests
+    slowest = sorted(done, key=lambda r: r["wall_time_s"] or 0, reverse=True)[:5]
+    lines.append(f"\n  5 slowest tests:")
+    for r in slowest:
+        pt = r.get("phase_timings") or {}
+        tg = sum(pt.get(p, 0) for p in grid_phases)
+        lines.append(f"    {r['config']:<45}  "
+                     f"wall={fmt_f(r['wall_time_s'])}s  "
+                     f"grid={tg:.1f}s  "
+                     f"solve={pt.get('solve_system',0):.1f}s  "
+                     f"L_max={fmt_f(r['L_max'])}")
+
+    # Near-timeout cases (>= 90% of TEST_TIMEOUT)
+    near_timeout = [r for r in done if r["wall_time_s"] and r["wall_time_s"] >= 0.9 * TEST_TIMEOUT]
+    if near_timeout:
+        lines.append(f"\n  Near-timeout cases ({len(near_timeout)} tests at ≥{0.9*TEST_TIMEOUT:.0f}s):")
+        for r in near_timeout:
+            lines.append(f"    {r['config']:<45}  L_max={fmt_f(r['L_max'])}  "
+                         f"#elems={r['num_elements']}")
+
+    # L_max distribution
+    lines.append("\n3. Plume length (L_max) distribution")
+    lines.append(sep)
+
+    lmaxes = [r["L_max"] for r in done if r["L_max"] is not None]
+    if lmaxes:
+        sl = sorted(lmaxes)
+        n = len(sl)
+        lines.append(f"  N={n}  min={sl[0]}  p25={sl[n//4]}  "
+                     f"median={sl[n//2]}  p75={sl[3*n//4]}  max={sl[-1]}  "
+                     f"mean={_mean(lmaxes):.1f} m")
+
+        # Histogram buckets
+        buckets = [(0, 25), (25, 50), (50, 100), (100, 200), (200, 999)]
+        lines.append("  Distribution:")
+        for lo, hi in buckets:
+            count = sum(1 for v in lmaxes if lo <= v < hi)
+            bar = "█" * count
+            lines.append(f"    {lo:>4}–{hi:<4} m : {count:3d}  {bar}")
+
+        # Longest plumes (most expensive grid evaluation)
+        longest = sorted(done, key=lambda r: r["L_max"] or 0, reverse=True)[:5]
+        lines.append(f"\n  5 longest plumes:")
+        for r in longest:
+            lines.append(f"    {r['config']:<45}  L_max={r['L_max']}  "
+                         f"#elems={r['num_elements']}  "
+                         f"method={r.get('solve_method','?')}")
+
+        # Shared helpers for 3a–3d
+        ARCH_NAMES = {
+            "A": "vert.stack",   "B": "horiz.spread", "C": "top-heavy",
+            "D": "bot-heavy",    "E": "tight-pack",   "F": "scattered",
+            "G": "diagonal",     "H": "two-groups",   "I": "outlier",
+            "J": "dense-ctr",    "?": "unknown",
+        }
+        arch_buckets = [(0, 25), (25, 50), (50, 100), (100, 200), (200, 999999)]
+        arch_bucket_labels = ["0–25", "25–50", "50–100", "100–200", "200+"]
+
+        def _std(vals):
+            if len(vals) < 2:
+                return 0.0
+            m = _mean(vals)
+            return math.sqrt(sum((v - m) ** 2 for v in vals) / len(vals))
+
+        # Per-archetype L_max summary
+        arch_lmax = {}
+        for r in done:
+            if r.get("L_max") is None:
+                continue
+            arch, _ = _parse_config_meta(r["config"])
+            arch_lmax.setdefault(arch, []).append(r["L_max"])
+
+        if arch_lmax:
+            lines.append("\n  3a. Mean L_max per archetype")
+            lines.append(
+                f"  {'Arch':<4} {'Name':<12} {'N':>3}  "
+                f"{'Mean':>7}  {'Std':>7}  {'Min':>7}  {'Max':>7}  {'Median':>7}"
+            )
+            lines.append("  " + "-" * 60)
+            for arch in sorted(arch_lmax.keys()):
+                vals = sorted(arch_lmax[arch])
+                n = len(vals)
+                median = vals[n // 2]
+                lines.append(
+                    f"  {arch:<4} {ARCH_NAMES.get(arch, '?'):<12} {n:>3}  "
+                    f"{_mean(vals):>7.1f}  {_std(vals):>7.1f}  "
+                    f"{vals[0]:>7.1f}  {vals[-1]:>7.1f}  {median:>7.1f}"
+                )
+
+        # Per-archetype L_max histogram
+        if arch_lmax:
+            lines.append("\n  3b. L_max histogram per archetype")
+            lines.append(
+                "  " + f"{'Arch':<6}" +
+                "  ".join(f"{lbl:>8}" for lbl in arch_bucket_labels)
+            )
+            lines.append("  " + "-" * (6 + 10 * len(arch_bucket_labels)))
+            for arch in sorted(arch_lmax.keys()):
+                vals = arch_lmax[arch]
+                row = f"  {arch:<6}"
+                for lo, hi in arch_buckets:
+                    count = sum(1 for v in vals if lo <= v < hi)
+                    row += f"{'█' * count:>8}  "
+                lines.append(row)
+
+        # Mean L_max by cluster count
+        cl_lmax = {}
+        for r in done:
+            if r.get("L_max") is None:
+                continue
+            _, n_cl = _parse_config_meta(r["config"])
+            if n_cl is not None:
+                cl_lmax.setdefault(n_cl, []).append(r["L_max"])
+
+        if cl_lmax:
+            lines.append("\n  3c. Mean L_max by cluster count")
+            lines.append(
+                f"  {'n_cl':>4}  {'N':>3}  {'Mean':>7}  {'Std':>7}  {'Min':>7}  {'Max':>7}"
+            )
+            lines.append("  " + "-" * 46)
+            for n_cl in sorted(cl_lmax.keys()):
+                vals = cl_lmax[n_cl]
+                lines.append(
+                    f"  {n_cl:>4}  {len(vals):>3}  {_mean(vals):>7.1f}  "
+                    f"{_std(vals):>7.1f}  {min(vals):>7.1f}  {max(vals):>7.1f}"
+                )
+
+        #Mean L_max by element count (pre-mirroring)
+        elem_bins = [(0, 30), (30, 60), (60, 100), (100, 999999)]
+        elem_labels = ["<30", "30–60", "60–100", "100+"]
+
+        if any(r.get("num_elements") is not None and r.get("L_max") is not None
+               for r in done):
+            lines.append("\n  3d. Mean L_max by element count (pre-mirroring)")
+            lines.append(
+                f"  {'Elements':>10}  {'N':>3}  {'Mean':>7}  {'Std':>7}  {'Min':>7}  {'Max':>7}"
+            )
+            lines.append("  " + "-" * 52)
+            for (lo, hi), lbl in zip(elem_bins, elem_labels):
+                vals = [r["L_max"] for r in done
+                        if r.get("L_max") is not None
+                        and r.get("num_elements") is not None
+                        and lo <= r["num_elements"] < hi]
+                if not vals:
+                    continue
+                lines.append(
+                    f"  {lbl:>10}  {len(vals):>3}  {_mean(vals):>7.1f}  "
+                    f"{_std(vals):>7.1f}  {min(vals):>7.1f}  {max(vals):>7.1f}"
+                )
+
+    # Concentration range anomalies
+    lines.append("\n4. Concentration range anomalies")
+    lines.append(sep)
+
+    # Expected background is around -8 mg/l; flag anything far below -12
+    extreme_min = sorted(
+        [r for r in done if r.get("result_min") is not None and r["result_min"] < -12],
+        key=lambda r: r["result_min"]
+    )
+    lines.append(f"  result_min < -50 mg/l: {len(extreme_min)} cases")
+    for r in extreme_min[:5]:
+        lines.append(f"    {r['config']:<45}  result_min={r['result_min']:.1f}  "
+                     f"method={r.get('solve_method','?')}  cond={fmt_f(r.get('condition_number'), '.2e')}")
+
+    # Physically impossible positives (result_max >> max donor conc)
+    # Max donor is typically 50 mg/l — flag anything > 60
+    extreme_max = sorted(
+        [r for r in done if r.get("result_max") is not None and r["result_max"] > 60],
+        key=lambda r: -r["result_max"]
+    )
+    lines.append(f"  result_max > 100 mg/l: {len(extreme_max)} cases")
+    for r in extreme_max[:5]:
+        lines.append(f"    {r['config']:<45}  result_max={r['result_max']:.1f}")
+
+    # Grid time vs plume length
+    lines.append("\n5. Grid time vs plume length")
+    lines.append(sep)
+    lines.append("  Total grid time grows rapidly with L_max because long plumes")
+    lines.append("  trigger domain extensions (each adding a full grid pass).")
+
+    buckets_lmax = [(0, 25), (25, 75), (75, 150), (150, 9999)]
+    for lo, hi in buckets_lmax:
+        group = [r for r in done
+                 if r.get("L_max") is not None and lo <= r["L_max"] < hi
+                 and r.get("phase_timings")]
+        if not group:
+            continue
+        grids = [sum(r["phase_timings"].get(p, 0) for p in grid_phases) for r in group]
+        walls = [r["wall_time_s"] for r in group if r["wall_time_s"]]
+        label = f"{lo}–{hi if hi < 9999 else '∞'} m"
+        lines.append(f"  L_max {label:<12} ({len(group):2d} tests) "
+                     f"mean grid={_mean(grids):.0f}s  mean wall={_mean(walls):.0f}s")
+
+    return lines
+
+
 def write_summary(all_results, path):
     """
     Write a formatted text summary of all test results to `path`.
 
     Contains a header with timestamp and config directory, a table row
-    per test with key diagnostics, and aggregate statistics over all
-    completed tests at the bottom.
+    per test with key diagnostics, aggregate statistics, and an analytics
+    section derived from cross-test patterns.
     """
     col_w = 42
     header = (
         f"{'Config':<{col_w}} {'St':>6} {'#El':>3} {'Ori':>5} "
         f"{'Cond':>10} {'Method':>10} {'L_max':>6} "
-        f"{'ResMin':>8} {'ResMax':>8} {'Time':>7}"
+        f"{'ResMin':>8} {'ResMax':>8} {'Val':>5} {'Time':>7}"
     )
     sep = "-" * len(header)
     lines = []
@@ -221,16 +581,19 @@ def write_summary(all_results, path):
 
         cond_str = f"{r['condition_number']:.2e}" if r["condition_number"] else "-"
 
+        vp = r.get("validation_passed")
+        val_str = "PASS" if vp is True else ("FAIL" if vp is False else "-")
         lines.append(
             f"{name:<{col_w}} "
             f"{r['status']:>6} "
-            f"{r['num_elements_after_mirroring']:>3} "
+            f"{r['num_elements']:>3} "
             f"{r['orientation'][:5]:>5} "
             f"{cond_str:>10} "
             f"{(r['solve_method'] or '-')[:10]:>10} "
             f"{fmt_f(r['L_max']):>6} "
             f"{fmt_f(r['result_min'], '.2f'):>8} "
             f"{fmt_f(r['result_max'], '.2f'):>8} "
+            f"{val_str:>5} "
             f"{fmt_f(r['wall_time_s'])}s"
         )
 
@@ -277,6 +640,9 @@ def write_summary(all_results, path):
             lines.append(f"\n[{r['status']}] {r['config']}")
             if r.get("error"):
                 lines.append(f"  {r['error']}")
+
+    # Analytics section
+    lines.extend(_analyse_results(all_results))
 
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")

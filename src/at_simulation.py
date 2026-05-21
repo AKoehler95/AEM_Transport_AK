@@ -693,7 +693,7 @@ class ATSimulation:
         donor_levels = np.linspace(0, max_val, 11)
         acceptor_levels = np.linspace(-abs_min, 0, 9)
 
-        plt.figure(figsize=(16, 9), dpi=300)
+        plt.figure(figsize=(16, 9), dpi=500)
         mpl.rcParams.update({"font.size": 22})
 
         X, Y = np.meshgrid(self.xaxis, self.yaxis)
@@ -716,10 +716,18 @@ class ATSimulation:
             X, Y,
             self.result,
             levels=[0],
-            linewidths=2,
-            linestyles = ':',
+            linewidths=3,
+            linestyles = '-',
             colors='k'
         )
+        # Plume_levels = plt.contour(
+        #     X, Y,
+        #     self.result,
+        #     levels=5, #[0]
+        #     linewidths=2,
+        #     linestyles = ':',
+        #     colors='k'
+        # )
 
         #L_max using Matplotlib (non-deprecated)
         total_length = 0

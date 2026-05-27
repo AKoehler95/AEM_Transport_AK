@@ -43,7 +43,7 @@ RESULTS_DIR = os.path.join(SCRIPT_DIR, "results_test_batch")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Maximum wall-clock time per test before it is marked TIMEOUT.
-TEST_TIMEOUT = 600
+TEST_TIMEOUT = 500
 
 # Log capture
 log_capture = io.StringIO()

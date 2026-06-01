@@ -238,10 +238,10 @@ class ATSimulation:
                 updated_elements.append(elem)
                 mirrored = create_mirrored_element(elem)
                 mirrored.id = f"image_{elem.id}"
-                zero_isoline = create_zero_isoline(elem)
-                zero_isoline.id = f"zero_{elem.id}"
+                # zero_isoline = create_zero_isoline(elem)
+                # zero_isoline.id = f"zero_{elem.id}"
                 updated_elements.append(mirrored)
-            updated_elements.append(zero_isoline)
+            # updated_elements.append(zero_isoline)
             self.config.elements = updated_elements
             self.config.dom_ymax = 0
 
@@ -408,7 +408,7 @@ class ATSimulation:
             self.config.gamma
         )
 
-        with Pool(processes=cpu_count(), initializer=_init_pool, initargs=pool_args) as pool:
+        with Pool(processes=cpu_count()-2, initializer=_init_pool, initargs=pool_args) as pool:
             flat = pool.map(_compute_point_shared, coords)
 
         self.result = np.array(flat).reshape(xs.shape)

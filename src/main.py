@@ -10,15 +10,15 @@ from at_simulation import ATSimulation
 from at_inverse_model import process_input_file_with_logging
 
 # Choose mode: "simulate" to run transport sim, "inverse" to run alpha-finder
-MODE = "simulate"  # "simulate" or "inverse"
+MODE = "inverse"  # "simulate" or "inverse"
 
 # When MODE == "simulate":
 CONFIG_PATH = "simulation_config.json"
 
 # When MODE == "inverse":
 INPUT_FILE       = "input_values_sl.txt"
-OUTPUT_FILE      = "output_values_sl2.txt"
-STATS_FILE       = "stats_values_sl2.txt"
+OUTPUT_FILE      = "output_values_sl.txt"
+STATS_FILE       = "stats_values_sl.txt"
 ORIENTATION      = "vertical"     # "horizontal" or "vertical"
 ELEM_KIND        = "Circle"           # Circle or Line or Ellipse
 SOURCE_THICKNESS_MODIFIER = 0.1     # set between 0.0 and 1.0 to determine what percentage of

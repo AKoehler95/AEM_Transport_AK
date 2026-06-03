@@ -408,7 +408,7 @@ class ATSimulation:
             self.config.gamma
         )
 
-        with Pool(processes=cpu_count()-2, initializer=_init_pool, initargs=pool_args) as pool:
+        with Pool(processes=cpu_count(), initializer=_init_pool, initargs=pool_args) as pool:
             flat = pool.map(_compute_point_shared, coords)
 
         self.result = np.array(flat).reshape(xs.shape)

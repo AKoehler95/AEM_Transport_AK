@@ -717,7 +717,7 @@ class ATSimulation:
             self.result,
             levels=[0],
             linewidths=3,
-            linestyles = '-',
+            linestyles = '--',
             colors='k'
         )
         # Plume_levels = plt.contour(

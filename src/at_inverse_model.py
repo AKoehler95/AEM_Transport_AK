@@ -19,7 +19,7 @@ PARAM_SEARCH_DEFAULTS = {
         "lower": 0.0001,
         "upper": 1.0,
         "initial_step_factor": 1.0 / 500.0,  # start with (ub-lb)/500
-        "step_growth": 3.0,                  # each failure → step *= 3
+        "step_growth": 3,                  # each failure → step *= 3
         "max_step_factor": 0.2,              # step <= 0.2 * (ub - lb)
         "L_tolerance": 10.0,                  # |L_max - target| [m]
     },

@@ -18,6 +18,9 @@ from matplotlib.ticker import MaxNLocator
 from matplotlib.lines import Line2D
 from multiprocessing import Pool, cpu_count
 
+import scienceplots
+plt.style.use('science')
+
 # Local imports:
 from at_config import ATConfiguration
 from at_element import ATElement, ATElementType
@@ -587,20 +590,20 @@ class ATSimulation:
             max_val: float = round(np.max(Err), 9)
             mean_val: float = round(np.mean(Err), 9)
             std_val: float = round(np.std(Err), 9)
-            flux_val: float = round(np.sum((i - elem.c)*(2*pi*elem.r)/(1e-2*360) for i in Err),9)
+            # flux_val: float = round(np.sum((i - elem.c)*(2*pi*elem.r)/(1e-2*360) for i in Err),9)
 
             print(f'Element {idx + 1}:')
             print(f'  Min = {min_val} mg/l')
             print(f'  Max = {max_val} mg/l')
             print(f'  Mean = {mean_val} mg/l')
             print(f'  Standard Deviation = {std_val} mg/l')
-            print(f'  Flux = {flux_val}')
+            # print(f'  Flux = {flux_val}')
 
             stats[f"Min{idx + 1}"] = min_val
             stats[f"Max{idx + 1}"] = max_val
             stats[f"Mean{idx + 1}"] = mean_val
             stats[f"Std{idx + 1}"] = std_val
-            stats[f"Flux{idx + 1}"] = flux_val
+            # stats[f"Flux{idx + 1}"] = flux_val
 
         results_dir: str = os.path.join("Results")
         os.makedirs(results_dir, exist_ok=True)
@@ -692,10 +695,11 @@ class ATSimulation:
 
         donor_levels = np.linspace(0, max_val, 11)
         acceptor_levels = np.linspace(-abs_min, 0, 9)
-
-        plt.figure(figsize=(16, 9), dpi=500)
+        
+        plt.tight_layout()
+        plt.figure(figsize=(10, 8), dpi=500)
         mpl.rcParams.update({"font.size": 22})
-
+        
         X, Y = np.meshgrid(self.xaxis, self.yaxis)
 
         donor = plt.contourf(
@@ -746,17 +750,23 @@ class ATSimulation:
         plt.ylabel("$z$ (m)" if self.config.orientation == "vertical" else "$y$ (m)")
 
         plt.subplots_adjust(bottom=0.20)
+        
+        ax = plt.gca()
+        # left edge of the plotting area in figure coordinates
+        x0 = 2.5 * ax.get_position().x0
 
         cbar_donor = plt.colorbar(
             donor,
             ticks=donor_levels,
             label='Electron donor concentration [mg/l]',
             location='bottom',
-            pad=0.02,
+            pad=0.005,
             aspect=75,
         )
         cbar_donor.ax.tick_params(labelsize=14)
-
+        cbar_donor.ax.xaxis.label.set_horizontalalignment("left")
+        cbar_donor.ax.xaxis.set_label_coords(x0, cbar_donor.ax.get_position().y0-0.025, transform=plt.gcf().transFigure)
+                
         cbar_acceptor = plt.colorbar(
             acceptor,
             ticks=acceptor_levels,
@@ -767,7 +777,9 @@ class ATSimulation:
         )
         cbar_acceptor.set_ticklabels([f"{abs(t):.0f}" for t in acceptor_levels])
         cbar_acceptor.ax.tick_params(labelsize=14)
-
+        cbar_acceptor.ax.xaxis.label.set_horizontalalignment("left")
+        cbar_acceptor.ax.xaxis.set_label_coords(x0, cbar_acceptor.ax.get_position().y0-0.018, transform=plt.gcf().transFigure)
+    
         if self.config.plot_aspect == "scaled":
             plt.axis("scaled")
         else:  # "auto"

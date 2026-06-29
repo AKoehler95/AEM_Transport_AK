@@ -32,19 +32,13 @@ class ATConfiguration:
         self.plot_aspect: str = "scaled"
 
     @staticmethod
-    def from_json(filename: str) -> Any:
+    def from_dict(data: dict) -> "ATConfiguration":
         """
-        Load the configuration (JSON format) from the given file name.
+        Build an ATConfiguration from an already-parsed config dict.
 
-        :param file_name: File name of the configuration.
-        :return: A valid configuration from the given JSON file.
+        Separating parsing from file I/O lets the designer pass a dict
+        directly (avoiding a temp file) and keeps from_json as a thin wrapper.
         """
-
-        logger.debug(f"Load configuration from file: {filename}.")
-
-        with open(filename, "r") as f:
-            data = json.load(f)
-
         config = ATConfiguration()
         config.alpha_l = data.get("alpha_l", config.alpha_l)
         config.alpha_t = data.get("alpha_t", config.alpha_t)
@@ -78,33 +72,45 @@ class ATConfiguration:
                     x=elem_data['x'],
                     y=elem_data['y'],
                     c=elem_data['c'],
-                    r=elem_data['l']/2.0,  #radius
-                    theta=math.radians(theta_deg)  # default vertical
+                    r=elem_data['l'] / 2.0,
+                    theta=math.radians(theta_deg)
                 )
             elif kind == "ellipse":
-                # Ellipse element expects semi-axes a (semi-major) and b (semi-minor), and optional theta in degrees.
                 theta_deg = elem_data.get("theta", 0)
                 a = elem_data.get("a", None)
                 b = elem_data.get("b", None)
                 if a is None or b is None:
                     raise ValueError("Ellipse requires 'a' and 'b' (semi-axes) in the config.")
-
                 elem = ATElement(
                     kind=ATElementType.Ellipse,
                     x=float(elem_data['x']),
                     y=float(elem_data['y']),
                     c=float(elem_data['c']),
-                    r=float(a),  # map 'a' → r (semi-major)
-                    theta=math.radians(float(theta_deg)),  # degrees → radians
-                    b=float(b)  # semi-minor
+                    r=float(a),
+                    theta=math.radians(float(theta_deg)),
+                    b=float(b)
                 )
             else:
                 raise ValueError(f"Unknown element kind: {elem_data['kind']}")
 
             elem.label = elem_data.get("label", f"Element {i + 1}")
             elem.id = elem_data.get("id", f"source_{len(config.elements)}")
+            elem.index = elem_data.get("index", None)   # designer metadata; solver ignores it
             config.elements.append(elem)
         return config
+
+    @staticmethod
+    def from_json(filename: str) -> Any:
+        """
+        Load the configuration (JSON format) from the given file name.
+
+        :param file_name: File name of the configuration.
+        :return: A valid configuration from the given JSON file.
+        """
+        logger.debug(f"Load configuration from file: {filename}.")
+        with open(filename, "r") as f:
+            data = json.load(f)
+        return ATConfiguration.from_dict(data)
 
     def annotate_elements_on_plot(self, ax):
         for elem in self.elements:

@@ -9,19 +9,19 @@ from at_element import ATElement, ATElementType
 from at_simulation import ATSimulation, create_mirrored_element
 from at_inverse_config import InverseConfiguration
 
-# All inverse-model parameters (per-parameter search bounds, fixed
-# dispersivities, domain / numerical settings, run-level options) now live in
-# inverse_config.json and are loaded into an InverseConfiguration. The inverse
-# model no longer reads the forward model's simulation_config.json, so results
-# are independent of whichever simulation_config.json happens to be active.
-#
-# Fixed-dispersivity behaviour (unchanged), depending on which parameter is
-# being estimated:
-#   - estimating alpha_t -> alpha_l fixed to inv_cfg.fixed_alpha_l
-#   - estimating alpha_l -> alpha_t fixed to inv_cfg.fixed_alpha_t
-#   - estimating r/C0/ca/gamma -> both fixed to
-#       inv_cfg.alpha_t_when_estimating_others / inv_cfg.alpha_l_when_estimating_others
+"""
+ All inverse-model parameters (per-parameter search bounds, fixed
+ dispersivities, domain / numerical settings, run-level options) are in
+ inverse_config.json and are loaded into an InverseConfiguration.
 
+ Fixed-dispersivity behaviour (unchanged), depending on which parameter is
+ being estimated:
+   - estimating alpha_t -> alpha_l fixed to inv_cfg.fixed_alpha_l
+   - estimating alpha_l -> alpha_t fixed to inv_cfg.fixed_alpha_t
+   - estimating r/C0/ca/gamma -> both fixed to
+      inv_cfg.alpha_t_when_estimating_others / inv_cfg.alpha_l_when_estimating_others
+      
+"""
 
 #Folder path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

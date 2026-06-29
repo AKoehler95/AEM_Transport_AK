@@ -7,26 +7,21 @@ import logging
 # Local imports
 from at_config import ATConfiguration
 from at_simulation import ATSimulation
+from at_inverse_config import InverseConfiguration
 from at_inverse_model import process_input_file_with_logging
 
 # Choose mode: "simulate" to run transport sim, "inverse" to run alpha-finder
 MODE = "simulate"  # "simulate" or "inverse"
 
-# When MODE == "simulate":
+# When MODE == "simulate": forward model's exclusive config
 CONFIG_PATH = "simulation_config.json"
 
-# When MODE == "inverse":
-INPUT_FILE       = "input_values_new.txt"
-OUTPUT_FILE      = "output_values.txt"
-STATS_FILE       = "stats_values.txt"
-ORIENTATION      = "horizontal"   # "horizontal" or "vertical"
-ELEM_KIND        = "Line"       #Circle or Line
-SOURCE_THICKNESS_MODIFIER = 1.0   # set between 0.0 and 1.0 to determine what percentage of
-                                   # aquifer thickness is radius of source thickness
-
-# New: which parameter to estimate and optional bounds
-# Options: "alpha_t", "alpha_l", "r", "C0", "ca", "gamma"
-ESTIMATE_PARAM   = "r"
+# When MODE == "inverse": inverse model's exclusive config.
+# All inverse run-level options, search bounds, fixed dispersivities and
+# domain / numerical settings live in this file (the inverse model no longer
+# reads simulation_config.json). The per-case inputs come from the input file
+# referenced inside inverse_config.json ("input_file").
+INVERSE_CONFIG_PATH = "inverse_config.json"
 
 result = None
 
@@ -47,25 +42,9 @@ def run_simulation():
     # Return or process sim.result_tuple as needed
     return sim.result_tuple
 
-def run_at_inverse(
-    input_file,
-    output_file,
-    stats_file,
-    orientation,
-    elem_kind,
-    source_thickness_modifier,
-    estimate_param,
-):
+def run_at_inverse(inv_cfg):
     # Run the parameter-finder in batch mode with logging
-    process_input_file_with_logging(
-        input_file=input_file,
-        output_file=output_file,
-        statsfile=stats_file,
-        orientation=orientation,
-        elem_kind=elem_kind,
-        source_thickness_modifier=source_thickness_modifier,
-        estimate_param=estimate_param,
-    )
+    process_input_file_with_logging(inv_cfg)
 
 def main():
     global result
@@ -75,18 +54,11 @@ def main():
         result = run_simulation()
         print("Simulation completed. Result tuple returned.")
     elif MODE == "inverse":
-        run_at_inverse(
-            input_file=INPUT_FILE,
-            output_file=OUTPUT_FILE,
-            stats_file=STATS_FILE,
-            orientation=ORIENTATION,
-            elem_kind=ELEM_KIND,
-            source_thickness_modifier=SOURCE_THICKNESS_MODIFIER,
-            estimate_param=ESTIMATE_PARAM,
-        )
-        print(f"Inverse Dispersivity Finder completed. Results in '{OUTPUT_FILE}'. Element Statistics in '{STATS_FILE}'. Console output logged to 'findalpha_log.txt'.")
+        inv_cfg = InverseConfiguration.from_json(INVERSE_CONFIG_PATH)
+        run_at_inverse(inv_cfg)
+        print(f"Inverse Dispersivity Finder completed. Results in '{inv_cfg.output_file}'. Element Statistics in '{inv_cfg.stats_file}'. Console output logged to 'findalpha_log.txt'.")
     else:
-        raise ValueError(f"Unknown MODE '{MODE}'. Use 'simulate' or 'findalpha'.")
+        raise ValueError(f"Unknown MODE '{MODE}'. Use 'simulate' or 'inverse'.")
 
 
 if __name__ == "__main__":

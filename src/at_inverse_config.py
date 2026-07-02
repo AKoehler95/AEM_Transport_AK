@@ -31,7 +31,7 @@ DEFAULT_PARAM_SEARCH = {
     },
     # Radius r [m] - absolute global bounds (independent of source modifier)
     "r": {
-        "lower": 0.5,
+        "lower": 0.1,
         "upper": 10.0,
         "initial_step_factor": 1.0 / 500.0,
         "step_growth": 3.0,

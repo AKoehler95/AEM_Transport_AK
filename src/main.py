@@ -10,18 +10,18 @@ from at_simulation import ATSimulation
 from at_inverse_model import process_input_file_with_logging
 
 # Choose mode: "simulate" to run transport sim, "inverse" to run alpha-finder
-MODE = "inverse"  # "simulate" or "inverse"
+MODE = "simulate"  # "simulate" or "inverse"
 
 # When MODE == "simulate":
 CONFIG_PATH = "simulation_config.json"
 
 # When MODE == "inverse":
-INPUT_FILE       = "input_values_all.txt"
-OUTPUT_FILE      = "output_values_all_sl.txt"
-STATS_FILE       = "stats_values_all_sl.txt"
+INPUT_FILE       = "input_values_fixed_source.txt"
+OUTPUT_FILE      = "output_values_fixed_source.txt"
+STATS_FILE       = "stats_values_fixed_source.txt"
 ORIENTATION      = "vertical"     # "horizontal" or "vertical"
 ELEM_KIND        = "Circle"           # Circle or Line or Ellipse
-SOURCE_THICKNESS_MODIFIER = 0.1     # set between 0.0 and 1.0 to determine what percentage of
+SOURCE_THICKNESS_MODIFIER = 1.0     # set between 0.0 and 1.0 to determine what percentage of
                                     # aquifer thickness is radius of source thickness
 
 # New: which parameter to estimate and optional bounds

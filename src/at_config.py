@@ -30,6 +30,22 @@ class ATConfiguration:
         self.elements: list = []
         self.orientation: str = "horizontal"
         self.plot_aspect: str = "scaled"
+        # Show figures in the IDE/interactive window in addition to writing PDFs.
+        self.show_plots: bool = False
+        # Extend dom_xmax automatically when the plume reaches the boundary.
+        self.dynamic_domain: bool = True
+        # Seed dom_xmax from the learned predictor (xmax_predictor.py) instead
+        # of using the value in this config. Off by default so a run stays
+        # reproducible from the config file alone; dynamic_domain remains the
+        # correctness guarantee either way.
+        self.use_xmax_predictor: bool = False
+        # Allow the decoupled iterative solver as a fallback for ill-conditioned
+        # systems. When False the coupled result is always used (a warning is
+        # still emitted so the ill-conditioned regime stays visible).
+        self.allow_decoupling: bool = True
+        # Debugging aid: [[x, y], ...] points at which the concentration is
+        # evaluated and reported after the solve. Not intended for normal use.
+        self.probe_points: list = []
 
     @staticmethod
     def from_dict(data: dict) -> "ATConfiguration":
@@ -54,6 +70,11 @@ class ATConfiguration:
         config.num_terms = data.get("num_terms", config.num_terms)
         config.orientation = data.get("orientation", config.orientation)
         config.plot_aspect = data.get("plot_aspect", config.plot_aspect)
+        config.show_plots = data.get("show_plots", config.show_plots)
+        config.dynamic_domain = data.get("dynamic_domain", config.dynamic_domain)
+        config.use_xmax_predictor = data.get("use_xmax_predictor", config.use_xmax_predictor)
+        config.allow_decoupling = data.get("allow_decoupling", config.allow_decoupling)
+        config.probe_points = data.get("probe_points", config.probe_points)
 
         for i, elem_data in enumerate(data.get("elements", [])):
             kind = elem_data["kind"].lower()

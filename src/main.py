@@ -36,6 +36,18 @@ def setup_logging():
 def run_simulation():
     # Load configuration and run the full transport simulation
     config = ATConfiguration.from_json(CONFIG_PATH)
+
+    # Optional: size the domain from the learned predictor instead of the
+    # config's dom_xmax. Only saves the cost of a domain-extension pass —
+    # the extension loop in ATSimulation.run() still guarantees the plume
+    # isn't truncated, and an untrained/out-of-range model silently falls
+    # back to the legacy "furthest source point + 150" rule.
+    if config.use_xmax_predictor:
+        from xmax_predictor import suggest_dom_xmax
+        suggested = suggest_dom_xmax(config)
+        print(f"xmax predictor: dom_xmax {config.dom_xmax:.0f} -> {suggested:.0f} m")
+        config.dom_xmax = suggested
+
     sim = ATSimulation(config)
     sim.run()
 

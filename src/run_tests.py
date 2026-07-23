@@ -9,16 +9,18 @@ Each test loads a config, runs the full simulation (solve, grid
 evaluation, plots, statistics), and records the timing, solver
 diagnostics, and key outputs (L_max, concentration range, etc.).
 
-Outputs (in ./results/):
+Outputs (in ./batch_results/):
   test_results.json   — machine-readable per-test data
   test_summary.txt    — human-readable formatted table + analytics
 
 Usage:
     python run_tests.py [config_dir]
 
-Default config_dir is ./configs_test_batch/ relative to this script.
+Default config_dir is ./batch_configs/ relative to this script.
+Batch output (test_results.json, test_summary.txt) goes to ./batch_results/.
 """
 
+import argparse
 import sys
 import os
 import json
@@ -38,9 +40,14 @@ matplotlib.use('Agg')
 
 # Paths
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
-CONFIG_DIR  = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SCRIPT_DIR, "configs_test_batch")
-RESULTS_DIR = os.path.join(SCRIPT_DIR, "results_test_batch")
+CONFIG_DIR  = os.path.join(SCRIPT_DIR, "batch_configs")   # overridden in main() from argv
+RESULTS_DIR = os.path.join(SCRIPT_DIR, "batch_results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
+
+# Dataset path for the learned dom_xmax predictor (xmax_features.py /
+# xmax_predictor.py) — canonical definition lives in xmax_predictor so
+# train_xmax_from_runs.py shares the same default.
+from xmax_predictor import DEFAULT_DATASET_PATH as LMAX_DATASET_PATH
 
 # Maximum wall-clock time per test before it is marked TIMEOUT.
 TEST_TIMEOUT = 500
@@ -72,7 +79,7 @@ def _parse_config_meta(config_name):
     return arch, n_cl
 
 
-def _run_one_body(config_path, result, stdout_buf):
+def _run_one_body(config_path, result, stdout_buf, use_predictor=False, predictor=None):
     """
     Execute a single configuration through the full simulation pipeline
     and populate the result dict with outputs and diagnostics.
@@ -81,13 +88,30 @@ def _run_one_body(config_path, result, stdout_buf):
     timeout. Redirects sim.run()'s stdout/stderr into stdout_buf, then
     parses it for solver-method information (coupled vs decoupled,
     condition number, group count).
+
+    If use_predictor is True, config.dom_xmax is overwritten with the
+    learned predictor's suggestion before the run; the existing dynamic
+    domain-extension loop in ATSimulation.run() is untouched either way and
+    remains the correctness guarantee against under-prediction.
     """
     from at_config import ATConfiguration
     from at_simulation import ATSimulation
+    import xmax_features
 
     config = ATConfiguration.from_json(config_path)
     result["num_elements"] = len(config.elements)
     result["orientation"]  = config.orientation
+
+    features = xmax_features.extract_features(config)
+    result["_features"] = features
+    result["_config_hash"] = xmax_features.config_hash_from_path(config_path)
+
+    if use_predictor:
+        pred = predictor.predict(features)
+        config.dom_xmax = pred["dom_xmax"]
+        result["predictor_trained"] = pred["trained"]
+        result["L_pred_q"] = pred["L_pred_q"]
+    result["dom_xmax_initial"] = config.dom_xmax
 
     sim = ATSimulation(config)
     with redirect_stdout(stdout_buf), redirect_stderr(stdout_buf):
@@ -150,8 +174,34 @@ def _run_one_body(config_path, result, stdout_buf):
     result["result_max"]       = float(np.max(sim.result))
     result["status"]           = "DONE"
 
+    # Domain-sizing diagnostics for the xmax dataset (see xmax_predictor.py).
+    # "censored" mirrors ATSimulation.check_domain_adequacy: the plume ran
+    # into the domain edge, so L_max is only a lower bound and must not be
+    # used as a training label.
+    dom_xmax_final = sim.config.dom_xmax
+    n_extensions = sum(
+        1 for k in (result.get("phase_timings") or {}) if k.startswith("conc_array_ext")
+    )
+    domain_width = dom_xmax_final - sim.config.dom_xmin
+    censored = True
+    if sim.L_max is not None and domain_width > 0:
+        max_x_distance = sim.L_max - sim.config.dom_xmin
+        censored = max_x_distance >= 0.95 * domain_width
 
-def run_one(config_path):
+    result["dom_xmax_final"] = dom_xmax_final
+    result["n_extensions"]   = n_extensions
+    result["censored"]       = censored
+
+
+def _append_dataset_row(path, row):
+    """Append one JSON line to the xmax training dataset, creating dirs as needed."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a") as f:
+        f.write(json.dumps(row) + "\n")
+
+
+def run_one(config_path, use_predictor=False, predictor=None, learn=False,
+            dataset_path=LMAX_DATASET_PATH):
     """
     Run a single test configuration with timeout enforcement.
 
@@ -159,6 +209,14 @@ def run_one(config_path):
     doesn't complete within TEST_TIMEOUT seconds, the result is marked
     TIMEOUT. If the worker raises an exception, the result is marked
     ERROR with the exception details recorded.
+
+    use_predictor: seed dom_xmax from the learned XmaxPredictor instead of
+        the value baked into the config file. The dynamic extension loop
+        stays active regardless, so a bad prediction only costs time.
+    learn: after a clean (non-censored) DONE run, append the labelled row
+        to the xmax dataset and refit the predictor on it. Independent of
+        use_predictor — you can collect training data while still running
+        with the default domain sizing.
 
     Returns the result dict with all fields populated.
     """
@@ -181,6 +239,12 @@ def run_one(config_path):
         error=None,
         stdout_capture="",
         log_capture="",
+        dom_xmax_initial=None,
+        dom_xmax_final=None,
+        n_extensions=None,
+        censored=None,
+        predictor_trained=False,
+        L_pred_q=None,
     )
 
     stdout_buf = io.StringIO()
@@ -190,7 +254,8 @@ def run_one(config_path):
 
     def worker():
         try:
-            _run_one_body(config_path, result, stdout_buf)
+            _run_one_body(config_path, result, stdout_buf,
+                           use_predictor=use_predictor, predictor=predictor)
         except Exception as e:
             thread_exc[0] = e
 
@@ -204,6 +269,8 @@ def run_one(config_path):
         result["status"] = "TIMEOUT"
         result["error"]  = f"Exceeded {TEST_TIMEOUT}s"
         result["stdout_capture"] = stdout_buf.getvalue()
+        result.pop("_features", None)
+        result.pop("_config_hash", None)
         return result
 
     if thread_exc[0] is not None:
@@ -213,6 +280,25 @@ def run_one(config_path):
         result["stdout_capture"] = stdout_buf.getvalue()
         result["log_capture"] = log_capture.getvalue()
         traceback.print_exception(type(e), e, e.__traceback__)
+
+    features = result.pop("_features", None)
+    config_hash = result.pop("_config_hash", None)
+    if learn and result["status"] == "DONE" and features is not None:
+        _append_dataset_row(dataset_path, {
+            "config_name": result["config"],
+            "config_hash": config_hash,
+            **features,
+            "L_max": result["L_max"],
+            "dom_xmax_initial": result["dom_xmax_initial"],
+            "dom_xmax_final": result["dom_xmax_final"],
+            "n_extensions": result["n_extensions"],
+            "censored": result["censored"],
+            "wall_time_s": result["wall_time_s"],
+        })
+        if not result["censored"] and result["L_max"] is not None:
+            predictor.update(features, result["L_max"])
+            predictor.refit()
+            predictor.save()
 
     return result
 
@@ -648,11 +734,49 @@ def write_summary(all_results, path):
         f.write("\n".join(lines) + "\n")
 
 
+def _parse_args():
+    parser = argparse.ArgumentParser(description="AEM Solver Test Runner")
+    parser.add_argument(
+        "config_dir", nargs="?", default=CONFIG_DIR,
+        help="Directory of JSON configs to run (default: ./batch_configs)",
+    )
+    predictor_group = parser.add_mutually_exclusive_group()
+    predictor_group.add_argument(
+        "--use-predictor", dest="use_predictor", action="store_true", default=False,
+        help="Seed dom_xmax from the learned XmaxPredictor instead of the config's "
+             "built-in guess (dynamic extension loop stays on as a safety net).",
+    )
+    predictor_group.add_argument(
+        "--no-predictor", dest="use_predictor", action="store_false",
+        help="Use the config's default dom_xmax (legacy behaviour). This is the default.",
+    )
+    learn_group = parser.add_mutually_exclusive_group()
+    learn_group.add_argument(
+        "--learn", dest="learn", action="store_true", default=True,
+        help="After each clean (non-censored) run, append it to the xmax dataset "
+             "and refit the predictor. On by default.",
+    )
+    learn_group.add_argument(
+        "--no-learn", dest="learn", action="store_false",
+        help="Don't log runs or update the predictor.",
+    )
+    return parser.parse_args()
+
+
 def main():
     """
     Discover all JSON configs, run each through the simulation, print
     progress to the console, and write summary files.
     """
+    global CONFIG_DIR
+    args = _parse_args()
+    CONFIG_DIR = args.config_dir
+
+    predictor = None
+    if args.use_predictor or args.learn:
+        from xmax_predictor import XmaxPredictor
+        predictor = XmaxPredictor()
+
     configs = sorted(
         os.path.join(CONFIG_DIR, f)
         for f in os.listdir(CONFIG_DIR) if f.endswith(".json")
@@ -662,14 +786,19 @@ def main():
         sys.exit(1)
 
     print(f"Running {len(configs)} tests from {CONFIG_DIR}")
-    print(f"Results -> {RESULTS_DIR}\n")
+    print(f"Results -> {RESULTS_DIR}")
+    print(f"Predictor: {'ON' if args.use_predictor else 'off'}  "
+          f"(trained on {len(predictor.y) if predictor else 0} rows)  "
+          f"Learn: {'ON' if args.learn else 'off'}\n")
 
     all_results = []
     for i, cfg_path in enumerate(configs, 1):
         name = os.path.basename(cfg_path)
         print(f"[{i:3d}/{len(configs)}] {name} ... ", end="", flush=True)
 
-        result = run_one(cfg_path)
+        result = run_one(cfg_path, use_predictor=args.use_predictor,
+                          predictor=predictor, learn=args.learn,
+                          dataset_path=LMAX_DATASET_PATH)
         all_results.append(result)
 
         # Compact one-line status with phase breakdown
@@ -709,6 +838,16 @@ def main():
     print(f"RESULTS: {len(all_results)} tests")
     for s, c in sorted(counts.items()):
         print(f"  {s:<10} {c}")
+
+    done = [r for r in all_results if r["status"] == "DONE"]
+    if done:
+        n_ext = [r["n_extensions"] for r in done if r["n_extensions"] is not None]
+        n_capped = sum(1 for r in done if r.get("censored"))
+        if n_ext:
+            print(f"  mean extensions: {sum(n_ext)/len(n_ext):.2f}   capped: {n_capped}/{len(done)}")
+    if predictor is not None:
+        print(f"  predictor rows after this batch: {len(predictor.y)}")
+
     print(f"\nOutputs in {RESULTS_DIR}/")
 
 

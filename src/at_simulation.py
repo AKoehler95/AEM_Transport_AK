@@ -76,6 +76,7 @@ except Exception as style_err:      # pragma: no cover — environment dependent
 # Local imports:
 from at_config import ATConfiguration
 from at_element import ATElement, ATElementType
+from at_grid_export import grid_csv_bytes, write_grid_csv
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +307,9 @@ class ATSimulation:
         Furthest x-extent of the 0-concentration contour, in meters.
     interface_length : float or None
         Total polyline length of the 0-contour, in meters.
+    csv_path : str or None
+        Path of the concentration-grid CSV written by run(), or None when
+        config.export_csv is off. See at_grid_export for the format.
     timer : _PhaseTimer
         Accumulates elapsed time per pipeline phase.
     """
@@ -319,6 +323,8 @@ class ATSimulation:
         self.num_elements_original = 0
         self.L_max = None
         self.interface_length = None
+        # Set by run() when config.export_csv is enabled; stays None otherwise.
+        self.csv_path = None
         self.validation_passed = None
         self.validation_reason = ""
         # Set by solve_system; also serves as the "has the system been solved"
@@ -441,6 +447,18 @@ class ATSimulation:
         self.run_dir = os.path.join(
             results_dir, f"{self.run_index:04d}_{self.generate_run_label()}")
         os.makedirs(self.run_dir, exist_ok=True)
+
+        # Export the concentration grid as CSV. This runs after the dynamic
+        # domain-extension loop above, so self.xaxis/yaxis/result are final —
+        # exporting earlier could write a domain that was later grown.
+        if getattr(self.config, "export_csv", False):
+            self.timer.start("export_csv")
+            dest = self.config.export_csv_path or os.path.join(self.run_dir, "grid.csv")
+            self.csv_path = write_grid_csv(
+                dest, self.xaxis, self.yaxis, self.result,
+                step=self.config.export_csv_step)
+            print(f"Grid CSV written to {self.csv_path}")
+            self.timer.stop()
 
         self.timer.start("plot_input")
         self.plot_input()
@@ -1274,6 +1292,17 @@ class ATSimulation:
 
         self.result = np.array(flat).reshape(xs.shape)
         self.result_tuple = (self.xaxis, self.yaxis, self.result)
+
+    def grid_csv_bytes(self, step: int = 1) -> bytes:
+        """
+        Return the solved concentration grid as long-form CSV, in memory.
+
+        The on-disk counterpart of the export written by run(), for a caller
+        (e.g. a web download) that wants the bytes without leaving a file
+        behind. Requires conc_array to have run. See at_grid_export for the
+        format and the ``step`` argument.
+        """
+        return grid_csv_bytes(self.xaxis, self.yaxis, self.result, step=step)
 
     # Post-processing
 

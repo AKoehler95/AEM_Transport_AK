@@ -46,6 +46,19 @@ class ATConfiguration:
         # Debugging aid: [[x, y], ...] points at which the concentration is
         # evaluated and reported after the solve. Not intended for normal use.
         self.probe_points: list = []
+        # Write the solved concentration grid as long-form CSV (one row per
+        # grid point) at the end of a run. Off by default so an existing run
+        # produces exactly the files it always did.
+        self.export_csv: bool = False
+        # Keep every n-th point on both axes when exporting. 1 = every point.
+        # Only worth raising for a coarse overview of a very fine grid; the
+        # full field is what makes the export worth having.
+        self.export_csv_step: int = 1
+        # Explicit CSV destination. Empty means "grid.csv inside this run's
+        # own directory". Setting it pins every run to one file, which is how
+        # a caller keeps a single always-current export (the write replaces
+        # the previous one atomically) instead of accumulating run folders.
+        self.export_csv_path: str = ""
 
     @staticmethod
     def from_dict(data: dict) -> "ATConfiguration":
@@ -75,6 +88,9 @@ class ATConfiguration:
         config.use_xmax_predictor = data.get("use_xmax_predictor", config.use_xmax_predictor)
         config.allow_decoupling = data.get("allow_decoupling", config.allow_decoupling)
         config.probe_points = data.get("probe_points", config.probe_points)
+        config.export_csv = data.get("export_csv", config.export_csv)
+        config.export_csv_step = data.get("export_csv_step", config.export_csv_step)
+        config.export_csv_path = data.get("export_csv_path", config.export_csv_path)
 
         for i, elem_data in enumerate(data.get("elements", [])):
             kind = elem_data["kind"].lower()

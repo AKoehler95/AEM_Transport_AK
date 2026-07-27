@@ -22,6 +22,10 @@
     "allow_decoupling": true,
     "probe_points": [],
 
+    "export_csv": false,
+    "export_csv_step": 1,
+    "export_csv_path": "",
+
     "elements": [
         {
             "kind": "circle",

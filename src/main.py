@@ -2,6 +2,7 @@
 # Based on code from Anton Köhler
 
 # Python std library
+import argparse
 import json
 import logging
 import os
@@ -61,9 +62,20 @@ def setup_logging():
                         format=log_format)
 
 
-def run_simulation():
+def run_simulation(csv_overrides=None):
     # Load configuration and run the full transport simulation
     config = ATConfiguration.from_json(CONFIG_PATH)
+
+    # CLI overrides for the CSV export, applied on top of the config file so a
+    # one-off run can request a CSV (or a different destination) without
+    # editing the JSON. None means "leave the config value alone".
+    if csv_overrides:
+        if csv_overrides.get("export_csv") is not None:
+            config.export_csv = csv_overrides["export_csv"]
+        if csv_overrides.get("export_csv_step") is not None:
+            config.export_csv_step = csv_overrides["export_csv_step"]
+        if csv_overrides.get("export_csv_path") is not None:
+            config.export_csv_path = csv_overrides["export_csv_path"]
 
     # Optional: size the domain from the learned predictor instead of the
     # config's dom_xmax. Only saves the cost of a domain-extension pass —
@@ -86,12 +98,48 @@ def run_at_inverse(inv_cfg):
     # Run the parameter-finder in batch mode with logging
     process_input_file_with_logging(inv_cfg)
 
+def parse_args(argv=None):
+    """
+    Parse the optional CLI overrides. With no arguments the returned values
+    are all None, so behaviour is identical to running without argparse.
+    """
+    parser = argparse.ArgumentParser(
+        description="Run the AEM transport simulation (see MODE / config paths "
+                    "at the top of this file for the rest of the configuration).")
+    parser.add_argument("--csv", dest="export_csv", action="store_true", default=None,
+                        help="Write the concentration grid as CSV after the run "
+                             "(overrides export_csv in the config).")
+    parser.add_argument("--csv-step", dest="export_csv_step", type=int, default=None,
+                        metavar="N",
+                        help="Keep every N-th grid point on both axes (1 = all). "
+                             "Implies --csv.")
+    parser.add_argument("--csv-path", dest="export_csv_path", type=str, default=None,
+                        metavar="PATH",
+                        help="Destination for the CSV. Default is grid.csv inside "
+                             "the run directory. Implies --csv.")
+    args = parser.parse_args(argv)
+
+    # Requesting a step or a path only makes sense with the export on, so turn
+    # it on implicitly rather than silently ignoring the other two flags.
+    if args.export_csv_step is not None or args.export_csv_path is not None:
+        if args.export_csv is None:
+            args.export_csv = True
+    return args
+
+
 def main():
     global result
     setup_logging()
 
+    args = parse_args()
+    csv_overrides = {
+        "export_csv": args.export_csv,
+        "export_csv_step": args.export_csv_step,
+        "export_csv_path": args.export_csv_path,
+    }
+
     if MODE == "simulate":
-        result = run_simulation()
+        result = run_simulation(csv_overrides)
         print("Simulation completed. Result tuple returned.")
     elif MODE == "inverse":
         inv_cfg = InverseConfiguration.from_json(INVERSE_CONFIG_PATH)

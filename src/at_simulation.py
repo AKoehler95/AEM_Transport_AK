@@ -34,13 +34,18 @@ import numpy as np
 import matplotlib
 
 # The backend must be chosen before pyplot is imported, i.e. before any config
-# is read. Default to the non-interactive Agg backend so headless/batch test
-# runs keep working; set AEM_INTERACTIVE=1 in the environment to keep whatever
-# interactive backend the IDE provides, which is what config "show_plots"
-# needs in order to draw into the IDE window.
-INTERACTIVE_BACKEND: bool = os.environ.get(
+# file can be read. Default to the non-interactive Agg backend so headless and
+# batch runs keep working (run_tests.py renders from worker threads, where the
+# GUI backends are unsafe).
+#
+# AEM_INTERACTIVE=1 opts out of forcing Agg and lets matplotlib auto-detect an
+# interactive backend instead — macosx on macOS, TkAgg or QtAgg on Windows and
+# Linux. No backend is hardcoded here, so this stays portable. main.py sets the
+# variable automatically when the config has "show_plots": true; set it by hand
+# for any other entry point.
+_WANT_INTERACTIVE: bool = os.environ.get(
     "AEM_INTERACTIVE", "").strip().lower() in ("1", "true", "yes", "on")
-if not INTERACTIVE_BACKEND:
+if not _WANT_INTERACTIVE:
     matplotlib.use('Agg')
 
 import matplotlib.pyplot as plt
@@ -50,6 +55,12 @@ from matplotlib.ticker import MaxNLocator
 from matplotlib.lines import Line2D
 from multiprocessing import Pool, cpu_count
 import multiprocessing
+
+# Whether plt.show() can actually draw anything. Resolved from the backend
+# matplotlib really ended up with rather than from what was requested:
+# auto-detection falls back to Agg when no display is available (headless
+# Linux, a machine without tkinter), and that fallback is silent.
+INTERACTIVE_BACKEND: bool = matplotlib.get_backend().lower() != "agg"
 
 # SciencePlots publication style. Guarded so the module still imports on a
 # machine without scienceplots or without a LaTeX installation ('science'
@@ -1645,20 +1656,24 @@ class ATSimulation:
 
         Writing the PDF is always done by the caller beforehand; this only
         controls whether the figure is *also* drawn into the IDE window.
-        Showing requires an interactive matplotlib backend, which is only
-        selected when AEM_INTERACTIVE is set in the environment (see the
-        backend note at the top of this module) — on the default Agg backend
-        plt.show() is a silent no-op, so warn rather than fail quietly.
+        Showing requires an interactive matplotlib backend (see the backend
+        note at the top of this module). main.py selects one automatically
+        from "show_plots", so reaching the warning below means either another
+        entry point imported this module, or auto-detection found no usable
+        display — on Agg, plt.show() is a silent no-op, so warn rather than
+        fail quietly.
         """
         if not getattr(self.config, "show_plots", False):
             plt.close()
             return
 
         if not INTERACTIVE_BACKEND:
-            print("WARNING: show_plots is enabled but matplotlib is using the "
-                  "non-interactive 'Agg' backend, so nothing can be displayed. "
-                  "Set AEM_INTERACTIVE=1 in the environment to enable inline "
-                  "plotting. The PDF was still written.")
+            print(f"WARNING: show_plots is enabled but matplotlib resolved to "
+                  f"the non-interactive '{matplotlib.get_backend()}' backend, "
+                  f"so nothing can be displayed. Run through main.py, or set "
+                  f"AEM_INTERACTIVE=1 before importing at_simulation. On Linux "
+                  f"this can also mean no display or no tkinter is available. "
+                  f"The PDF was still written.")
             plt.close()
             return
 

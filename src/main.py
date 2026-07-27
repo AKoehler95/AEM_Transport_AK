@@ -2,13 +2,9 @@
 # Based on code from Anton Köhler
 
 # Python std library
+import json
 import logging
-
-# Local imports
-from at_config import ATConfiguration
-from at_simulation import ATSimulation
-from at_inverse_config import InverseConfiguration
-from at_inverse_model import process_input_file_with_logging
+import os
 
 # Choose mode: "simulate" to run transport sim, "inverse" to run alpha-finder
 MODE = "simulate"  # "simulate" or "inverse"
@@ -22,6 +18,38 @@ CONFIG_PATH = "simulation_config.json"
 # reads simulation_config.json). The per-case inputs come from the input file
 # referenced inside inverse_config.json ("input_file").
 INVERSE_CONFIG_PATH = "inverse_config.json"
+
+
+def _wants_interactive_plots(path):
+    """
+    Peek at "show_plots" in the config without building an ATConfiguration.
+
+    Needed because matplotlib's backend has to be fixed before pyplot is
+    imported, and importing at_config/at_simulation to read the flag would
+    import pyplot first. A missing or malformed config isn't reported here —
+    the real loader below raises with a better message.
+    """
+    try:
+        with open(path) as f:
+            return bool(json.load(f).get("show_plots", False))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
+# Backend selection, which must happen before the local imports below: they
+# pull in pyplot transitively (at_simulation directly, at_inverse_model via
+# at_simulation), and at_simulation forces the non-interactive Agg backend
+# unless AEM_INTERACTIVE is set. Translating "show_plots" into that variable
+# here means the config flag alone is enough — no second switch to remember.
+# setdefault so an explicit AEM_INTERACTIVE=0 from the environment still wins.
+if MODE == "simulate" and _wants_interactive_plots(CONFIG_PATH):
+    os.environ.setdefault("AEM_INTERACTIVE", "1")
+
+# Local imports (deliberately after the backend decision above):
+from at_config import ATConfiguration                            # noqa: E402
+from at_simulation import ATSimulation                           # noqa: E402
+from at_inverse_config import InverseConfiguration               # noqa: E402
+from at_inverse_model import process_input_file_with_logging     # noqa: E402
 
 result = None
 

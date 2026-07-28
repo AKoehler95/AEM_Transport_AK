@@ -38,9 +38,29 @@ from datetime import datetime
 import matplotlib
 matplotlib.use('Agg')
 
+# ── Run-button defaults ──────────────────────────────────────────────────────
+# Edit these three when running from an IDE Run button (Spyder / PyCharm), which
+# launches the file with no command-line arguments. Command-line flags, when
+# given, override every one of them (see _parse_args), so the CLI still works
+# exactly as before.
+#
+#   CONFIG_DIR     : folder of *.json configs to run. An absolute path, or a
+#                    name/relative path resolved against this script's folder.
+#   USE_PREDICTOR  : True to seed dom_xmax from the learned XmaxPredictor
+#                    instead of each config's built-in guess.
+#   LEARN          : True to append each clean run to the xmax dataset and
+#                    refit the model afterwards.
+CONFIG_DIR    = "batch_configs"
+USE_PREDICTOR = False
+LEARN         = True
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Paths
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
-CONFIG_DIR  = os.path.join(SCRIPT_DIR, "batch_configs")   # overridden in main() from argv
+# Resolve CONFIG_DIR against the script folder unless it's already absolute, so
+# a bare name like "batch_configs" works regardless of the IDE's working dir.
+if not os.path.isabs(CONFIG_DIR):
+    CONFIG_DIR = os.path.join(SCRIPT_DIR, CONFIG_DIR)   # overridden in main() from argv
 RESULTS_DIR = os.path.join(SCRIPT_DIR, "batch_results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
@@ -740,21 +760,23 @@ def _parse_args():
         "config_dir", nargs="?", default=CONFIG_DIR,
         help="Directory of JSON configs to run (default: ./batch_configs)",
     )
+    # Defaults come from the module-level constants above so the IDE Run button
+    # (no args) honours them; passing a flag overrides the corresponding one.
     predictor_group = parser.add_mutually_exclusive_group()
     predictor_group.add_argument(
-        "--use-predictor", dest="use_predictor", action="store_true", default=False,
+        "--use-predictor", dest="use_predictor", action="store_true", default=USE_PREDICTOR,
         help="Seed dom_xmax from the learned XmaxPredictor instead of the config's "
              "built-in guess (dynamic extension loop stays on as a safety net).",
     )
     predictor_group.add_argument(
         "--no-predictor", dest="use_predictor", action="store_false",
-        help="Use the config's default dom_xmax (legacy behaviour). This is the default.",
+        help="Use the config's default dom_xmax (legacy behaviour).",
     )
     learn_group = parser.add_mutually_exclusive_group()
     learn_group.add_argument(
-        "--learn", dest="learn", action="store_true", default=True,
+        "--learn", dest="learn", action="store_true", default=LEARN,
         help="After each clean (non-censored) run, append it to the xmax dataset "
-             "and refit the predictor. On by default.",
+             "and refit the predictor.",
     )
     learn_group.add_argument(
         "--no-learn", dest="learn", action="store_false",

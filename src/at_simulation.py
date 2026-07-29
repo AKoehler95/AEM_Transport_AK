@@ -307,6 +307,10 @@ class ATSimulation:
         Furthest x-extent of the 0-concentration contour, in meters.
     interface_length : float or None
         Total polyline length of the 0-contour, in meters.
+    z_min_reached : float or None
+        Deepest y-coordinate (most negative) touched by the 0-contour, in
+        meters. Used by check_vertical_adequacy to detect capping against
+        the bottom (dom_ymin) boundary.
     csv_path : str or None
         Path of the concentration-grid CSV written by run(), or None when
         config.export_csv is off. See at_grid_export for the format.
@@ -323,6 +327,7 @@ class ATSimulation:
         self.num_elements_original = 0
         self.L_max = None
         self.interface_length = None
+        self.z_min_reached = None
         # Set by run() when config.export_csv is enabled; stays None otherwise.
         self.csv_path = None
         self.validation_passed = None
@@ -345,12 +350,14 @@ class ATSimulation:
              match prescribed concentrations on all element boundaries.
           3. conc_array — parallel evaluation of the concentration field on
              the domain grid.
-          4. Dynamic domain extension — if the plume reaches the x-boundary,
-             extends dom_xmax and recomputes. Repeats up to MAX_EXTENSIONS
-             times. Avoids wasting a full fine-grid pass on an undersized
-             domain.
-          5. Post-processing — L_max calculation, domain and concentration
-             range checks.
+          4. Dynamic domain extension — if the plume reaches the x-boundary
+             (dom_xmax) or the bottom z-boundary (dom_ymin), extends that
+             boundary and recomputes. Repeats up to MAX_EXTENSIONS times.
+             dom_ymax is never extended: in vertical orientation it is pinned
+             at the water table (y=0). Avoids wasting a full fine-grid pass on
+             an undersized domain.
+          5. Post-processing — L_max calculation, x/vertical domain and
+             concentration range checks.
           6. Output — input plot, statistics file, error plot, result plot,
              all saved under sim_runs/<run_index>_<label>/.
         """
@@ -400,13 +407,17 @@ class ATSimulation:
         self.timer.stop()
 
         # Extend the domain iteratively until the plume fits, or until
-        # MAX_EXTENSIONS is reached. Each extension adds 50% beyond the
-        # current L_max and triggers a fresh grid computation.
+        # MAX_EXTENSIONS is reached. Each round grows dom_xmax (horizontal
+        # capping at the tip) and/or dom_ymin (vertical capping from below) by
+        # ~50% and triggers a fresh grid computation. dom_ymax is never grown:
+        # in vertical orientation it is pinned at the water table (y=0) by the
+        # mirror-image construction, so extending it would pull image elements
+        # into the domain.
         # Disabling this (config "dynamic_domain": false) keeps the domain
         # exactly as specified in the config, which is what you want when
         # comparing runs on a fixed grid — at the cost of L_max being capped
-        # by dom_xmax whenever the plume runs off the edge. The existing
-        # check_domain_adequacy() warning below still flags that case.
+        # whenever the plume runs off an edge. The check_domain_adequacy() and
+        # check_vertical_adequacy() warnings below still flag that case.
         MAX_EXTENSIONS = 6 if getattr(self.config, "dynamic_domain", True) else 0
         self.timer.start("calculate_lmax")
         self.calculate_lmax()
@@ -415,15 +426,31 @@ class ATSimulation:
             if self.L_max is None:
                 break
             domain_width = self.config.dom_xmax - self.config.dom_xmin
+            domain_height = self.config.dom_ymax - self.config.dom_ymin
             max_x_dist = self.L_max - self.config.dom_xmin
-            if max_x_dist < 0.90 * domain_width:
-                break  # plume fits
 
-            new_xmax = self.L_max + 0.5 * max(self.L_max, domain_width)
-            print(f"Dynamic domain extension #{ext_round+1}: "
-                  f"dom_xmax {self.config.dom_xmax:.0f} -> {new_xmax:.0f} m  "
-                  f"(L_max={self.L_max})")
-            self.config.dom_xmax = new_xmax
+            # Horizontal capping: the interface tip approaches dom_xmax.
+            x_capped = max_x_dist >= 0.90 * domain_width
+            # Vertical capping: the interface reaches down toward dom_ymin.
+            z_capped = (self.z_min_reached is not None and
+                        (self.z_min_reached - self.config.dom_ymin)
+                        <= 0.10 * domain_height)
+
+            if not x_capped and not z_capped:
+                break  # plume fits in both directions
+
+            if x_capped:
+                new_xmax = self.L_max + 0.5 * max(self.L_max, domain_width)
+                print(f"Dynamic domain extension #{ext_round+1}: "
+                      f"dom_xmax {self.config.dom_xmax:.0f} -> {new_xmax:.0f} m  "
+                      f"(L_max={self.L_max})")
+                self.config.dom_xmax = new_xmax
+            if z_capped:
+                new_ymin = self.config.dom_ymin - 0.5 * domain_height
+                print(f"Dynamic domain extension #{ext_round+1}: "
+                      f"dom_ymin {self.config.dom_ymin:.0f} -> {new_ymin:.0f} m  "
+                      f"(z_min_reached={self.z_min_reached:.1f})")
+                self.config.dom_ymin = new_ymin
             self.timer.stop()
 
             self.timer.start(f"conc_array_ext{ext_round+1}")
@@ -436,6 +463,7 @@ class ATSimulation:
             self.calculate_lmax()
 
         self.check_domain_adequacy()
+        self.check_vertical_adequacy()
         self.check_concentration_range()
         self.validate_solution()
         self.probe_concentration()
@@ -1350,6 +1378,9 @@ class ATSimulation:
             path (rounded to an integer meter).
           - self.interface_length: the total polyline length of the chosen
             contour path (the one with the largest max-x).
+          - self.z_min_reached: the deepest y-coordinate touched by any
+            zero-contour path (in meters), used to detect vertical capping
+            against the bottom (dom_ymin) boundary.
 
         The zero-contour separates the donor-dominated region (C > 0) from
         the acceptor-dominated region (C < 0) and defines the plume
@@ -1365,9 +1396,11 @@ class ATSimulation:
         chosen = None
         self.interface_length = None
         self.L_max = None
+        self.z_min_reached = None
 
         if paths:
             max_x_overall = -np.inf
+            min_row_overall = np.inf
             for p in paths:
                 v = p.vertices
                 if v is None or len(v) == 0:
@@ -1376,12 +1409,21 @@ class ATSimulation:
                 if max_x_path > max_x_overall:
                     max_x_overall = max_x_path
                     chosen = v
+                # Track how close any part of the interface gets to the bottom
+                # boundary. contour() returns row indices in v[:, 1]; row 0 maps
+                # to dom_ymin, so the global minimum row over all paths marks the
+                # deepest point the plume envelope reaches.
+                min_row_overall = min(min_row_overall, float(np.min(v[:, 1])))
 
             if chosen is not None and len(chosen) > 1:
                 self.L_max = int(max_x_overall * self.config.dom_inc)
                 diffs = np.diff(chosen, axis=0)
                 self.interface_length = float(
                     np.sum(np.hypot(diffs[:, 0], diffs[:, 1])) * self.config.dom_inc)
+
+            if np.isfinite(min_row_overall):
+                self.z_min_reached = (
+                    self.config.dom_ymin + min_row_overall * self.config.dom_inc)
 
         plt_temp.close(fig_temp)
 
@@ -1408,6 +1450,34 @@ class ATSimulation:
         if max_x_distance >= 0.95 * domain_width:
             print(f"WARNING: L_max ({self.L_max:.1f} m) capped by x-domain boundary! "
                   f"({max_x_distance / domain_width * 100:.1f}% of width)")
+
+    def check_vertical_adequacy(self):
+        """
+        Warn if the plume interface reaches the bottom (dom_ymin) boundary.
+
+        The vertical analogue of check_domain_adequacy. If the zero-contour
+        comes within 5% of the domain height of dom_ymin, the plume is capped
+        from below and L_max may be under-reported: the part of the envelope
+        that would reach furthest in x can be clipped off by a too-shallow
+        domain, so the measured max-x is a lower bound. Dynamic domain
+        extension in run() normally prevents this by growing dom_ymin
+        downward; the check remains as a safety net (dynamic_domain off, or
+        MAX_EXTENSIONS exhausted).
+
+        dom_ymax is deliberately not checked: in vertical orientation it is
+        pinned at the water table (y=0), where the interface legitimately
+        terminates, so touching it is a physical feature, not a capping
+        artifact.
+        """
+        if self.z_min_reached is None:
+            return
+        domain_height = self.config.dom_ymax - self.config.dom_ymin
+        dist_from_bottom = self.z_min_reached - self.config.dom_ymin
+        if dist_from_bottom <= 0.05 * domain_height:
+            print(f"WARNING: plume interface reaches the bottom z-boundary "
+                  f"(z_min_reached={self.z_min_reached:.1f} m, "
+                  f"dom_ymin={self.config.dom_ymin:.1f} m)! "
+                  f"L_max may be capped vertically.")
 
     def check_concentration_range(self):
         """
@@ -1645,6 +1715,12 @@ class ATSimulation:
                 f.write(f"\nL_max: {self.L_max}\n")
             if getattr(self, "interface_length", None) is not None:
                 f.write(f"InterfaceLength: {self.interface_length:.6f} m\n")
+            if getattr(self, "z_min_reached", None) is not None:
+                domain_height = self.config.dom_ymax - self.config.dom_ymin
+                capped = ((self.z_min_reached - self.config.dom_ymin)
+                          <= 0.05 * domain_height)
+                f.write(f"z_min_reached: {self.z_min_reached:.3f} m\n")
+                f.write(f"VerticallyCapped: {'yes' if capped else 'no'}\n")
 
             f.write("\n=== ELEMENT BOUNDARY STATISTICS (4-point exact) ===\n")
             for k, v in stats.items():

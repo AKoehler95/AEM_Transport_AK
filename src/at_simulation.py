@@ -418,7 +418,7 @@ class ATSimulation:
         # comparing runs on a fixed grid — at the cost of L_max being capped
         # whenever the plume runs off an edge. The check_domain_adequacy() and
         # check_vertical_adequacy() warnings below still flag that case.
-        MAX_EXTENSIONS = 6 if getattr(self.config, "dynamic_domain", True) else 0
+        MAX_EXTENSIONS = 10 if getattr(self.config, "dynamic_domain", True) else 0
         self.timer.start("calculate_lmax")
         self.calculate_lmax()
 

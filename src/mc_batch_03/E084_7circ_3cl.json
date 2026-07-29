@@ -1,0 +1,97 @@
+{
+    "alpha_l": 4.539599,
+    "alpha_t": 0.025431,
+    "ca": 8.0,
+    "gamma": 2.806814,
+    "dom_xmin": -2.18,
+    "dom_xmax": 151.5,
+    "dom_ymin": -9.057,
+    "dom_ymax": 0.0,
+    "dom_inc": 1.0,
+    "num_cp": 40,
+    "num_terms": 5,
+    "orientation": "vertical",
+    "plot_aspect": "",
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 0.48,
+            "y": -0.63,
+            "r": 0.48,
+            "c": 25.0,
+            "id": "tp0_205_0"
+        },
+        {
+            "kind": "circle",
+            "x": 1.4592,
+            "y": -0.63,
+            "r": 0.48,
+            "c": 25.0,
+            "id": "tp0_205_1"
+        },
+        {
+            "kind": "circle",
+            "x": 0.48,
+            "y": -2.23689,
+            "r": 0.48,
+            "c": 25.0,
+            "id": "tp1_205_2"
+        },
+        {
+            "kind": "circle",
+            "x": 1.4592,
+            "y": -2.23689,
+            "r": 0.48,
+            "c": 25.0,
+            "id": "tp1_205_3"
+        },
+        {
+            "kind": "circle",
+            "x": 0.3,
+            "y": -3.57722,
+            "r": 0.3,
+            "c": 25.0,
+            "id": "tp2_205_4"
+        },
+        {
+            "kind": "circle",
+            "x": 0.912,
+            "y": -3.57722,
+            "r": 0.3,
+            "c": 25.0,
+            "id": "tp2_205_5"
+        },
+        {
+            "kind": "circle",
+            "x": 1.524,
+            "y": -3.57722,
+            "r": 0.3,
+            "c": 25.0,
+            "id": "tp2_205_6"
+        }
+    ],
+    "_meta": {
+        "config_name": "E084_7circ_3cl",
+        "archetype": "E",
+        "n_clusters": 3,
+        "n_elements": 7,
+        "seed": 202702,
+        "ws": 2.0,
+        "y_span": 4.37913,
+        "alpha_l": 4.539599,
+        "alpha_t": 0.025431,
+        "alpha_ratio": 0.115145,
+        "T": 9.771292,
+        "ca": 8.0,
+        "cd": 25.0,
+        "gamma": 2.806814,
+        "packing": 0.352448,
+        "packing_global": 0.427427,
+        "total_covered_area": 3.74352181,
+        "radius_pool": "MED",
+        "num_cp": 40,
+        "num_terms": 5,
+        "dom_inc": 1.0,
+        "design_row_index": 204
+    }
+}

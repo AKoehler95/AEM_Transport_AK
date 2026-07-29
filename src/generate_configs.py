@@ -52,7 +52,7 @@ RADIUS_FACTORS = {
 }
 CD_POOL = [3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 35.0, 50.0]   # donor conc. [mg/L]
 
-GAMMA_BOUNDS = (0.1, 20.0)      # valid range for the derived gamma
+GAMMA_BOUNDS = (0.1, 50.0)      # valid range for the derived gamma
 
 
 class D:
@@ -66,8 +66,8 @@ class D:
 # is sampled. Constants and derived factors are excluded from the design matrix.
 FACTORS = {
     # Geometry
-    "ws":          0.5,                       # source width [m]
-    "y_span":      (5.0, 25.0),               # source height [m]
+    "ws":          5-0,                       # source width [m]
+    "y_span":      (2.0, 5.0),               # source height [m]
     "packing":     (0.10, 0.50),              # fraction of WS*y_span covered by circles
     "n_clusters":  {"choice": [2, 3, 4, 5], "weights": [1, 2, 3, 2]},
     "archetype":   {"choice": list("ACDEFHIJ")},    # spatial pattern; see ARCHETYPES
@@ -80,14 +80,14 @@ FACTORS = {
 
     # Chemical Term: specify any three of T, ca, cd, gamma; derive the fourth by
     # moving the D(...) wrapper. T = 1 + gamma*cd/ca.
-    "T":           (2.0, 20.0),               # retardation-like ratio
+    "T":           (2.0, 50.0),               # retardation-like ratio
     "ca":          8.0,                       # acceptor conc. [mg/L]
     "cd":          CD_POOL,                   # donor conc. [mg/L]
     "gamma":       D(lambda f: (f["T"] - 1.0) * f["ca"] / f["cd"]),
 
     # Numerics
     "num_cp":      40,
-    "num_terms":   5,                         # keep at 5; dense sources are unstable higher
+    "num_terms":   7,                         # keep at 5; dense sources are unstable higher
     "dom_inc":     1.0,
 }
 

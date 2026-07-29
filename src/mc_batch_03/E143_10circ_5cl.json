@@ -1,0 +1,121 @@
+{
+    "alpha_l": 2.509217,
+    "alpha_t": 0.0229,
+    "ca": 8.0,
+    "gamma": 4.619272,
+    "dom_xmin": -2.0,
+    "dom_xmax": 150.7,
+    "dom_ymin": -9.007,
+    "dom_ymax": 0.0,
+    "dom_inc": 1.0,
+    "num_cp": 40,
+    "num_terms": 5,
+    "orientation": "vertical",
+    "plot_aspect": "",
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 0.24,
+            "y": -0.39,
+            "r": 0.24,
+            "c": 35.0,
+            "id": "tp0_357_0"
+        },
+        {
+            "kind": "circle",
+            "x": 0.7296,
+            "y": -0.39,
+            "r": 0.24,
+            "c": 35.0,
+            "id": "tp0_357_1"
+        },
+        {
+            "kind": "circle",
+            "x": 0.24,
+            "y": -1.09652,
+            "r": 0.24,
+            "c": 35.0,
+            "id": "tp1_357_2"
+        },
+        {
+            "kind": "circle",
+            "x": 0.7296,
+            "y": -1.09652,
+            "r": 0.24,
+            "c": 35.0,
+            "id": "tp1_357_3"
+        },
+        {
+            "kind": "circle",
+            "x": 0.24,
+            "y": -1.97729,
+            "r": 0.24,
+            "c": 35.0,
+            "id": "tp2_357_4"
+        },
+        {
+            "kind": "circle",
+            "x": 0.7296,
+            "y": -1.97729,
+            "r": 0.24,
+            "c": 35.0,
+            "id": "tp2_357_5"
+        },
+        {
+            "kind": "circle",
+            "x": 0.24,
+            "y": -3.04903,
+            "r": 0.24,
+            "c": 35.0,
+            "id": "tp3_357_6"
+        },
+        {
+            "kind": "circle",
+            "x": 0.7296,
+            "y": -3.04903,
+            "r": 0.24,
+            "c": 35.0,
+            "id": "tp3_357_7"
+        },
+        {
+            "kind": "circle",
+            "x": 0.24,
+            "y": -3.76699,
+            "r": 0.24,
+            "c": 35.0,
+            "id": "tp4_357_8"
+        },
+        {
+            "kind": "circle",
+            "x": 0.7296,
+            "y": -3.76699,
+            "r": 0.24,
+            "c": 35.0,
+            "id": "tp4_357_9"
+        }
+    ],
+    "_meta": {
+        "config_name": "E143_10circ_5cl",
+        "archetype": "E",
+        "n_clusters": 5,
+        "n_elements": 10,
+        "seed": 202702,
+        "ws": 2.0,
+        "y_span": 4.44616,
+        "alpha_l": 2.509217,
+        "alpha_t": 0.0229,
+        "alpha_ratio": 0.135917,
+        "T": 21.209314,
+        "ca": 8.0,
+        "cd": 35.0,
+        "gamma": 4.619272,
+        "packing": 0.129869,
+        "packing_global": 0.203497,
+        "total_covered_area": 1.80955737,
+        "radius_pool": "COARSE",
+        "num_cp": 40,
+        "num_terms": 5,
+        "dom_inc": 1.0,
+        "design_row_index": 356
+    }
+}

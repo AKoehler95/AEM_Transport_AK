@@ -1,0 +1,97 @@
+{
+    "alpha_l": 3.303187,
+    "alpha_t": 0.049477,
+    "ca": 8.0,
+    "gamma": 14.186702,
+    "dom_xmin": -2.28,
+    "dom_xmax": 151.1,
+    "dom_ymin": -7.813,
+    "dom_ymax": 0.0,
+    "dom_inc": 1.0,
+    "num_cp": 40,
+    "num_terms": 5,
+    "orientation": "vertical",
+    "plot_aspect": "",
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 0.44,
+            "y": -2.37322,
+            "r": 0.44,
+            "c": 25.0,
+            "id": "dc0_41_0"
+        },
+        {
+            "kind": "circle",
+            "x": 0.28,
+            "y": -1.46133,
+            "r": 0.28,
+            "c": 25.0,
+            "id": "dc1_41_1"
+        },
+        {
+            "kind": "circle",
+            "x": 0.8512,
+            "y": -1.46133,
+            "r": 0.28,
+            "c": 25.0,
+            "id": "dc1_41_2"
+        },
+        {
+            "kind": "circle",
+            "x": 0.16,
+            "y": -0.59,
+            "r": 0.16,
+            "c": 25.0,
+            "id": "dc2_41_3"
+        },
+        {
+            "kind": "circle",
+            "x": 0.4864,
+            "y": -0.59,
+            "r": 0.16,
+            "c": 25.0,
+            "id": "dc2_41_4"
+        },
+        {
+            "kind": "circle",
+            "x": 0.8128,
+            "y": -0.59,
+            "r": 0.16,
+            "c": 25.0,
+            "id": "dc2_41_5"
+        },
+        {
+            "kind": "circle",
+            "x": 1.1392,
+            "y": -0.59,
+            "r": 0.16,
+            "c": 25.0,
+            "id": "dc2_41_6"
+        }
+    ],
+    "_meta": {
+        "config_name": "J020_7circ_3cl",
+        "archetype": "J",
+        "n_clusters": 3,
+        "n_elements": 7,
+        "seed": 202702,
+        "ws": 2.0,
+        "y_span": 3.30759,
+        "alpha_l": 3.303187,
+        "alpha_t": 0.049477,
+        "alpha_ratio": 0.165114,
+        "T": 45.333443,
+        "ca": 8.0,
+        "cd": 25.0,
+        "gamma": 14.186702,
+        "packing": 0.156888,
+        "packing_global": 0.215038,
+        "total_covered_area": 1.42251315,
+        "radius_pool": "BROAD",
+        "num_cp": 40,
+        "num_terms": 5,
+        "dom_inc": 1.0,
+        "design_row_index": 40
+    }
+}

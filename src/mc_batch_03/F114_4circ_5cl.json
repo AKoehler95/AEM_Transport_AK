@@ -1,0 +1,73 @@
+{
+    "alpha_l": 1.085139,
+    "alpha_t": 0.046895,
+    "ca": 8.0,
+    "gamma": 13.690403,
+    "dom_xmin": -2.0,
+    "dom_xmax": 150.7,
+    "dom_ymin": -6.159,
+    "dom_ymax": 0.0,
+    "dom_inc": 1.0,
+    "num_cp": 40,
+    "num_terms": 5,
+    "orientation": "vertical",
+    "plot_aspect": "",
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 0.24,
+            "y": -0.91935,
+            "r": 0.24,
+            "c": 15.0,
+            "id": "sc1_274_0"
+        },
+        {
+            "kind": "circle",
+            "x": 0.7296,
+            "y": -0.91935,
+            "r": 0.24,
+            "c": 15.0,
+            "id": "sc1_274_1"
+        },
+        {
+            "kind": "circle",
+            "x": 0.24,
+            "y": -0.63345,
+            "r": 0.24,
+            "c": 15.0,
+            "id": "sc2_274_2"
+        },
+        {
+            "kind": "circle",
+            "x": 0.7296,
+            "y": -0.63345,
+            "r": 0.24,
+            "c": 15.0,
+            "id": "sc2_274_3"
+        }
+    ],
+    "_meta": {
+        "config_name": "F114_4circ_5cl",
+        "archetype": "F",
+        "n_clusters": 5,
+        "n_elements": 4,
+        "seed": 202702,
+        "ws": 2.0,
+        "y_span": 3.39613,
+        "alpha_l": 1.085139,
+        "alpha_t": 0.046895,
+        "alpha_ratio": 0.186061,
+        "T": 26.669505,
+        "ca": 8.0,
+        "cd": 15.0,
+        "gamma": 13.690403,
+        "packing": 0.126829,
+        "packing_global": 0.106566,
+        "total_covered_area": 0.72382295,
+        "radius_pool": "COARSE",
+        "num_cp": 40,
+        "num_terms": 5,
+        "dom_inc": 1.0,
+        "design_row_index": 273
+    }
+}

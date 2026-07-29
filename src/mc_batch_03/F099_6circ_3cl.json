@@ -1,0 +1,89 @@
+{
+    "alpha_l": 0.61597,
+    "alpha_t": 0.011704,
+    "ca": 8.0,
+    "gamma": 4.893643,
+    "dom_xmin": -2.0,
+    "dom_xmax": 151.3,
+    "dom_ymin": -7.335,
+    "dom_ymax": 0.0,
+    "dom_inc": 1.0,
+    "num_cp": 40,
+    "num_terms": 5,
+    "orientation": "vertical",
+    "plot_aspect": "",
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 0.44,
+            "y": -1.89514,
+            "r": 0.44,
+            "c": 35.0,
+            "id": "sc0_244_0"
+        },
+        {
+            "kind": "circle",
+            "x": 1.3376,
+            "y": -1.89514,
+            "r": 0.44,
+            "c": 35.0,
+            "id": "sc0_244_1"
+        },
+        {
+            "kind": "circle",
+            "x": 0.44,
+            "y": -1.25909,
+            "r": 0.44,
+            "c": 35.0,
+            "id": "sc1_244_2"
+        },
+        {
+            "kind": "circle",
+            "x": 1.3376,
+            "y": -1.25909,
+            "r": 0.44,
+            "c": 35.0,
+            "id": "sc1_244_3"
+        },
+        {
+            "kind": "circle",
+            "x": 0.44,
+            "y": -0.59,
+            "r": 0.44,
+            "c": 35.0,
+            "id": "sc2_244_4"
+        },
+        {
+            "kind": "circle",
+            "x": 1.3376,
+            "y": -0.59,
+            "r": 0.44,
+            "c": 35.0,
+            "id": "sc2_244_5"
+        }
+    ],
+    "_meta": {
+        "config_name": "F099_6circ_3cl",
+        "archetype": "F",
+        "n_clusters": 3,
+        "n_elements": 6,
+        "seed": 202702,
+        "ws": 2.0,
+        "y_span": 4.81988,
+        "alpha_l": 0.61597,
+        "alpha_t": 0.011704,
+        "alpha_ratio": 0.063294,
+        "T": 22.409689,
+        "ca": 8.0,
+        "cd": 35.0,
+        "gamma": 4.893643,
+        "packing": 0.303466,
+        "packing_global": 0.378565,
+        "total_covered_area": 3.64927403,
+        "radius_pool": "BROAD",
+        "num_cp": 40,
+        "num_terms": 5,
+        "dom_inc": 1.0,
+        "design_row_index": 243
+    }
+}

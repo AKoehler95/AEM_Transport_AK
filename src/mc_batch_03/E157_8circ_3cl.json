@@ -1,0 +1,105 @@
+{
+    "alpha_l": 2.335029,
+    "alpha_t": 0.013762,
+    "ca": 8.0,
+    "gamma": 15.3171,
+    "dom_xmin": -2.0,
+    "dom_xmax": 151.7,
+    "dom_ymin": -6.611,
+    "dom_ymax": 0.0,
+    "dom_inc": 1.0,
+    "num_cp": 40,
+    "num_terms": 5,
+    "orientation": "vertical",
+    "plot_aspect": "",
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 0.24,
+            "y": -0.39,
+            "r": 0.24,
+            "c": 10.0,
+            "id": "tp0_389_0"
+        },
+        {
+            "kind": "circle",
+            "x": 0.7296,
+            "y": -0.39,
+            "r": 0.24,
+            "c": 10.0,
+            "id": "tp0_389_1"
+        },
+        {
+            "kind": "circle",
+            "x": 1.2192,
+            "y": -0.39,
+            "r": 0.24,
+            "c": 10.0,
+            "id": "tp0_389_2"
+        },
+        {
+            "kind": "circle",
+            "x": 1.7088,
+            "y": -0.39,
+            "r": 0.24,
+            "c": 10.0,
+            "id": "tp0_389_3"
+        },
+        {
+            "kind": "circle",
+            "x": 0.24,
+            "y": -1.37087,
+            "r": 0.24,
+            "c": 10.0,
+            "id": "tp2_389_4"
+        },
+        {
+            "kind": "circle",
+            "x": 0.7296,
+            "y": -1.37087,
+            "r": 0.24,
+            "c": 10.0,
+            "id": "tp2_389_5"
+        },
+        {
+            "kind": "circle",
+            "x": 1.2192,
+            "y": -1.37087,
+            "r": 0.24,
+            "c": 10.0,
+            "id": "tp2_389_6"
+        },
+        {
+            "kind": "circle",
+            "x": 1.7088,
+            "y": -1.37087,
+            "r": 0.24,
+            "c": 10.0,
+            "id": "tp2_389_7"
+        }
+    ],
+    "_meta": {
+        "config_name": "E157_8circ_3cl",
+        "archetype": "E",
+        "n_clusters": 3,
+        "n_elements": 8,
+        "seed": 202702,
+        "ws": 2.0,
+        "y_span": 1.95971,
+        "alpha_l": 2.335029,
+        "alpha_t": 0.013762,
+        "alpha_ratio": 0.142564,
+        "T": 20.146375,
+        "ca": 8.0,
+        "cd": 10.0,
+        "gamma": 15.3171,
+        "packing": 0.493811,
+        "packing_global": 0.369352,
+        "total_covered_area": 1.44764589,
+        "radius_pool": "COARSE",
+        "num_cp": 40,
+        "num_terms": 5,
+        "dom_inc": 1.0,
+        "design_row_index": 388
+    }
+}

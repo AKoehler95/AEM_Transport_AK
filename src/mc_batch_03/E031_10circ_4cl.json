@@ -1,0 +1,121 @@
+{
+    "alpha_l": 2.959598,
+    "alpha_t": 0.032894,
+    "ca": 8.0,
+    "gamma": 9.574104,
+    "dom_xmin": -2.16,
+    "dom_xmax": 151.7,
+    "dom_ymin": -8.554,
+    "dom_ymax": 0.0,
+    "dom_inc": 1.0,
+    "num_cp": 40,
+    "num_terms": 5,
+    "orientation": "vertical",
+    "plot_aspect": "",
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 0.24,
+            "y": -0.55,
+            "r": 0.24,
+            "c": 25.0,
+            "id": "tp0_68_0"
+        },
+        {
+            "kind": "circle",
+            "x": 0.7296,
+            "y": -0.55,
+            "r": 0.24,
+            "c": 25.0,
+            "id": "tp0_68_1"
+        },
+        {
+            "kind": "circle",
+            "x": 1.2192,
+            "y": -0.55,
+            "r": 0.24,
+            "c": 25.0,
+            "id": "tp0_68_2"
+        },
+        {
+            "kind": "circle",
+            "x": 1.7088,
+            "y": -0.55,
+            "r": 0.24,
+            "c": 25.0,
+            "id": "tp0_68_3"
+        },
+        {
+            "kind": "circle",
+            "x": 0.4,
+            "y": -2.16628,
+            "r": 0.4,
+            "c": 25.0,
+            "id": "tp2_68_4"
+        },
+        {
+            "kind": "circle",
+            "x": 1.216,
+            "y": -2.16628,
+            "r": 0.4,
+            "c": 25.0,
+            "id": "tp2_68_5"
+        },
+        {
+            "kind": "circle",
+            "x": 0.24,
+            "y": -3.15415,
+            "r": 0.24,
+            "c": 25.0,
+            "id": "tp3_68_6"
+        },
+        {
+            "kind": "circle",
+            "x": 0.7296,
+            "y": -3.15415,
+            "r": 0.24,
+            "c": 25.0,
+            "id": "tp3_68_7"
+        },
+        {
+            "kind": "circle",
+            "x": 1.2192,
+            "y": -3.15415,
+            "r": 0.24,
+            "c": 25.0,
+            "id": "tp3_68_8"
+        },
+        {
+            "kind": "circle",
+            "x": 1.7088,
+            "y": -3.15415,
+            "r": 0.24,
+            "c": 25.0,
+            "id": "tp3_68_9"
+        }
+    ],
+    "_meta": {
+        "config_name": "E031_10circ_4cl",
+        "archetype": "E",
+        "n_clusters": 4,
+        "n_elements": 10,
+        "seed": 202702,
+        "ws": 2.0,
+        "y_span": 3.97294,
+        "alpha_l": 2.959598,
+        "alpha_t": 0.032894,
+        "alpha_ratio": 0.096227,
+        "T": 30.919076,
+        "ca": 8.0,
+        "cd": 25.0,
+        "gamma": 9.574104,
+        "packing": 0.445855,
+        "packing_global": 0.308708,
+        "total_covered_area": 2.45295554,
+        "radius_pool": "COARSE",
+        "num_cp": 40,
+        "num_terms": 5,
+        "dom_inc": 1.0,
+        "design_row_index": 67
+    }
+}

@@ -1,0 +1,65 @@
+{
+    "alpha_l": 1.834971,
+    "alpha_t": 0.00878,
+    "ca": 8.0,
+    "gamma": 10.198109,
+    "dom_xmin": -2.0,
+    "dom_xmax": 150.9,
+    "dom_ymin": -5.51,
+    "dom_ymax": 0.0,
+    "dom_inc": 1.0,
+    "num_cp": 40,
+    "num_terms": 5,
+    "orientation": "vertical",
+    "plot_aspect": "",
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 0.18,
+            "y": -0.33,
+            "r": 0.18,
+            "c": 5.0,
+            "id": "th3_11_0"
+        },
+        {
+            "kind": "circle",
+            "x": 0.5472,
+            "y": -0.33,
+            "r": 0.18,
+            "c": 5.0,
+            "id": "th3_11_1"
+        },
+        {
+            "kind": "circle",
+            "x": 0.9144,
+            "y": -0.33,
+            "r": 0.18,
+            "c": 5.0,
+            "id": "th3_11_2"
+        }
+    ],
+    "_meta": {
+        "config_name": "C006_3circ_4cl",
+        "archetype": "C",
+        "n_clusters": 4,
+        "n_elements": 3,
+        "seed": 202702,
+        "ws": 2.0,
+        "y_span": 4.3272,
+        "alpha_l": 1.834971,
+        "alpha_t": 0.00878,
+        "alpha_ratio": 0.134777,
+        "T": 7.373818,
+        "ca": 8.0,
+        "cd": 5.0,
+        "gamma": 10.198109,
+        "packing": 0.114736,
+        "packing_global": 0.035284,
+        "total_covered_area": 0.30536281,
+        "radius_pool": "MED",
+        "num_cp": 40,
+        "num_terms": 5,
+        "dom_inc": 1.0,
+        "design_row_index": 10
+    }
+}

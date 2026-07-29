@@ -1,0 +1,89 @@
+{
+    "alpha_l": 1.524834,
+    "alpha_t": 0.039858,
+    "ca": 8.0,
+    "gamma": 9.797125,
+    "dom_xmin": -2.42,
+    "dom_xmax": 151.6,
+    "dom_ymin": -7.524,
+    "dom_ymax": 0.0,
+    "dom_inc": 1.0,
+    "num_cp": 40,
+    "num_terms": 5,
+    "orientation": "vertical",
+    "plot_aspect": "",
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 0.3,
+            "y": -1.80371,
+            "r": 0.3,
+            "c": 8.0,
+            "id": "sc0_88_0"
+        },
+        {
+            "kind": "circle",
+            "x": 0.912,
+            "y": -1.80371,
+            "r": 0.3,
+            "c": 8.0,
+            "id": "sc0_88_1"
+        },
+        {
+            "kind": "circle",
+            "x": 1.524,
+            "y": -1.80371,
+            "r": 0.3,
+            "c": 8.0,
+            "id": "sc0_88_2"
+        },
+        {
+            "kind": "circle",
+            "x": 0.72,
+            "y": -0.96601,
+            "r": 0.72,
+            "c": 8.0,
+            "id": "sc1_88_3"
+        },
+        {
+            "kind": "circle",
+            "x": 1.6488,
+            "y": -1.50601,
+            "r": 0.18,
+            "c": 8.0,
+            "id": "sc1_88_4"
+        },
+        {
+            "kind": "circle",
+            "x": 1.6488,
+            "y": -0.87,
+            "r": 0.18,
+            "c": 8.0,
+            "id": "sc1_88_5"
+        }
+    ],
+    "_meta": {
+        "config_name": "F040_6circ_2cl",
+        "archetype": "F",
+        "n_clusters": 2,
+        "n_elements": 6,
+        "seed": 202702,
+        "ws": 2.0,
+        "y_span": 4.28292,
+        "alpha_l": 1.524834,
+        "alpha_t": 0.039858,
+        "alpha_ratio": 0.09679,
+        "T": 10.797125,
+        "ca": 8.0,
+        "cd": 8.0,
+        "gamma": 9.797125,
+        "packing": 0.305466,
+        "packing_global": 0.312918,
+        "total_covered_area": 2.68040685,
+        "radius_pool": "MED",
+        "num_cp": 40,
+        "num_terms": 5,
+        "dom_inc": 1.0,
+        "design_row_index": 87
+    }
+}

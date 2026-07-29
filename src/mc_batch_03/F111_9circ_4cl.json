@@ -1,0 +1,113 @@
+{
+    "alpha_l": 3.450958,
+    "alpha_t": 0.02416,
+    "ca": 8.0,
+    "gamma": 2.596336,
+    "dom_xmin": -2.12,
+    "dom_xmax": 151.0,
+    "dom_ymin": -9.395,
+    "dom_ymax": 0.0,
+    "dom_inc": 1.0,
+    "num_cp": 40,
+    "num_terms": 5,
+    "orientation": "vertical",
+    "plot_aspect": "",
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 0.2,
+            "y": -4.07505,
+            "r": 0.2,
+            "c": 10.0,
+            "id": "sc0_267_0"
+        },
+        {
+            "kind": "circle",
+            "x": 0.608,
+            "y": -4.07505,
+            "r": 0.2,
+            "c": 10.0,
+            "id": "sc0_267_1"
+        },
+        {
+            "kind": "circle",
+            "x": 1.016,
+            "y": -4.07505,
+            "r": 0.2,
+            "c": 10.0,
+            "id": "sc0_267_2"
+        },
+        {
+            "kind": "circle",
+            "x": 0.2,
+            "y": -3.58383,
+            "r": 0.2,
+            "c": 10.0,
+            "id": "sc1_267_3"
+        },
+        {
+            "kind": "circle",
+            "x": 0.608,
+            "y": -3.58383,
+            "r": 0.2,
+            "c": 10.0,
+            "id": "sc1_267_4"
+        },
+        {
+            "kind": "circle",
+            "x": 0.32,
+            "y": -1.38475,
+            "r": 0.32,
+            "c": 10.0,
+            "id": "sc2_267_5"
+        },
+        {
+            "kind": "circle",
+            "x": 0.9728,
+            "y": -1.38475,
+            "r": 0.32,
+            "c": 10.0,
+            "id": "sc2_267_6"
+        },
+        {
+            "kind": "circle",
+            "x": 0.32,
+            "y": -0.47,
+            "r": 0.32,
+            "c": 10.0,
+            "id": "sc3_267_7"
+        },
+        {
+            "kind": "circle",
+            "x": 0.9728,
+            "y": -0.47,
+            "r": 0.32,
+            "c": 10.0,
+            "id": "sc3_267_8"
+        }
+    ],
+    "_meta": {
+        "config_name": "F111_9circ_4cl",
+        "archetype": "F",
+        "n_clusters": 4,
+        "n_elements": 9,
+        "seed": 202702,
+        "ws": 2.0,
+        "y_span": 4.06573,
+        "alpha_l": 3.450958,
+        "alpha_t": 0.02416,
+        "alpha_ratio": 0.095139,
+        "T": 4.245419,
+        "ca": 8.0,
+        "cd": 10.0,
+        "gamma": 2.596336,
+        "packing": 0.155522,
+        "packing_global": 0.235519,
+        "total_covered_area": 1.91511488,
+        "radius_pool": "FINE",
+        "num_cp": 40,
+        "num_terms": 5,
+        "dom_inc": 1.0,
+        "design_row_index": 266
+    }
+}

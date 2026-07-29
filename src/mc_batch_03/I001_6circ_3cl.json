@@ -1,0 +1,89 @@
+{
+    "alpha_l": 1.745165,
+    "alpha_t": 0.01407,
+    "ca": 8.0,
+    "gamma": 5.384322,
+    "dom_xmin": -2.0,
+    "dom_xmax": 151.8,
+    "dom_ymin": -6.839,
+    "dom_ymax": 0.0,
+    "dom_inc": 1.0,
+    "num_cp": 40,
+    "num_terms": 5,
+    "orientation": "vertical",
+    "plot_aspect": "",
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 0.16,
+            "y": -1.67915,
+            "r": 0.16,
+            "c": 15.0,
+            "id": "oo_3_0"
+        },
+        {
+            "kind": "circle",
+            "x": 0.4864,
+            "y": -1.67915,
+            "r": 0.16,
+            "c": 15.0,
+            "id": "oo_3_1"
+        },
+        {
+            "kind": "circle",
+            "x": 0.8128,
+            "y": -1.67915,
+            "r": 0.16,
+            "c": 15.0,
+            "id": "oo_3_2"
+        },
+        {
+            "kind": "circle",
+            "x": 1.1392,
+            "y": -1.67915,
+            "r": 0.16,
+            "c": 15.0,
+            "id": "oo_3_3"
+        },
+        {
+            "kind": "circle",
+            "x": 1.4656,
+            "y": -1.67915,
+            "r": 0.16,
+            "c": 15.0,
+            "id": "oo_3_4"
+        },
+        {
+            "kind": "circle",
+            "x": 1.792,
+            "y": -1.67915,
+            "r": 0.16,
+            "c": 15.0,
+            "id": "oo_3_5"
+        }
+    ],
+    "_meta": {
+        "config_name": "I001_6circ_3cl",
+        "archetype": "I",
+        "n_clusters": 3,
+        "n_elements": 6,
+        "seed": 202702,
+        "ws": 2.0,
+        "y_span": 2.52211,
+        "alpha_l": 1.745165,
+        "alpha_t": 0.01407,
+        "alpha_ratio": 0.189027,
+        "T": 11.095605,
+        "ca": 8.0,
+        "cd": 15.0,
+        "gamma": 5.384322,
+        "packing": 0.4965,
+        "packing_global": 0.095664,
+        "total_covered_area": 0.48254863,
+        "radius_pool": "BROAD",
+        "num_cp": 40,
+        "num_terms": 5,
+        "dom_inc": 1.0,
+        "design_row_index": 2
+    }
+}

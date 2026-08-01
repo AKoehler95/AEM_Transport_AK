@@ -2,7 +2,7 @@
 # Based on code from Willi Kappler and Anton Köhler
 
 """
-AEM Transport Simulation — main simulation class and supporting functions.
+AEM Transport Simulation: main simulation class and supporting functions.
 
 This module implements the Analytic Element Method (AEM) transport model for
 simulating steady-state contaminant plumes in groundwater. The core workflow is:
@@ -374,8 +374,8 @@ class ATSimulation:
             # and a single shared zero-isoline is added at the end.
             updated_elements = []
             for elem in self.config.elements:
-                if elem.y > -(elem.r*np.sin(elem.theta)+0.1):
-                    raise ValueError(f"Element '{elem.id}' must have y < -(r+0.1) for vertical orientation.")
+                if elem.y > -(elem.r*np.sin(elem.theta)+0.01):
+                    raise ValueError(f"Element '{elem.id}' must have y < -(r+0.01) for vertical orientation.")
                 updated_elements.append(elem)
                 mirrored = create_mirrored_element(elem)
                 mirrored.id = f"image_{elem.id}"
@@ -1628,8 +1628,8 @@ class ATSimulation:
 
             if elem.kind == ATElementType.Circle:
                 phi = np.array([0.0, pi/2, pi, 3*pi/2])
-                x_test = elem.x + (elem.r + 1e-9) * np.cos(phi)
-                y_test = elem.y + (elem.r + 1e-9) * np.sin(phi)
+                x_test = elem.x + (elem.r + 1e-2) * np.cos(phi)
+                y_test = elem.y + (elem.r + 1e-2) * np.sin(phi)
 
             elif elem.kind == ATElementType.Ellipse:
                 phi = np.array([0.0, pi/2, pi, 3*pi/2])
@@ -2022,8 +2022,8 @@ class ATSimulation:
         donor_levels = np.linspace(0, max_val, 11) if has_donor else None
         acceptor_levels = np.linspace(-abs_min, 0, 9) if has_acceptor else None
 
-        # Use 150 dpi for diagnostic runs; bump to 300 for publication quality.
-        plot_dpi = 150
+        # Use 500 dpi for publication-quality result plots; lower for speed.
+        plot_dpi = 500
 
         mpl.rcParams.update({"font.size": 22})
         fig, ax = plt.subplots(figsize=(10, 8), dpi=plot_dpi)

@@ -170,7 +170,36 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# Forward-model run output (at_simulation.RUNS_DIR). Regenerable; the
+# legacy Results/ name is kept so old working trees stay ignored too.
+sim_runs/
 Results/
+
+# Batch-run archives, kept local only — the 500-run batch is ~100 MB and
+# its configs are regenerable from generate_configs.RANDOM_SEED. What
+# survives in git is the predictor dataset distilled from it, via
+# `python train_xmax_from_runs.py ../AEM_Batch_runs`.
+AEM_Batch_runs/
+
+# run_tests.py batch output and its generated input configs. The configs are
+# reproducible from generate_configs.RANDOM_SEED, so neither is tracked.
+/src/batch_results/
+/src/batch_configs/
+/src/designer_exports/
+
+# xmax_predictor.py artifacts: the training dataset is tracked so learning
+# carries over between machines via git; the pickled model is not
+# (regenerate it locally with train_xmax_from_runs.py — pickles are fragile
+# across sklearn versions, the dataset isn't).
+/src/xmax_model/*
+!/src/xmax_model/lmax_dataset.jsonl
+
+# macOS directory metadata
+.DS_Store
+
+# Claude Code local settings and scratch worktrees
+.claude/
+
 simulation_config.json
 src/simulation_config.json
 src/inverse_model_files/findalpha_log.txt

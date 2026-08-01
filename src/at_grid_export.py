@@ -1,3 +1,5 @@
+# Written by Alvin Yadav
+
 """
 Export a solved concentration grid as tidy long-form CSV.
 

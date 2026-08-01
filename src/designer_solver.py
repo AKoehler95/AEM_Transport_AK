@@ -1,5 +1,7 @@
+# Written by Alvin Yadav
+
 """
-AEM Source Designer — Solver adapter.
+AEM Source Designer: Solver adapter.
 
 Bridges the designer model to ATSimulation. Exposes solve_scene (blocking),
 collect_artifacts (locate output files), and bundle_results (zip for download).

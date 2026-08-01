@@ -1,5 +1,7 @@
+# Written by Alvin Yadav
+
 """
-AEM Source Designer — Model layer (no matplotlib imports).
+AEM Source Designer
 
 Holds all data classes, packing logic, JSON export/import, and validation.
 Scene is the single source of truth; GlobalParams replaces module constants.

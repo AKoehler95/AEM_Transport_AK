@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+# Written by Alvin Yadav
+
 """
 Train/refresh the dom_xmax predictor from existing batch runs, without going
 through run_tests.py.

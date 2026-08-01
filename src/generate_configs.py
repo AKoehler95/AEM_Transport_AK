@@ -1,3 +1,5 @@
+# Written by Alvin Yadav
+
 """
 AEM Composite Source Config Generator
 

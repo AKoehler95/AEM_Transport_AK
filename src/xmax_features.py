@@ -1,3 +1,5 @@
+# Written by Alvin Yadav
+
 """
 Pure feature extraction for the learned dom_xmax predictor (xmax_predictor.py).
 

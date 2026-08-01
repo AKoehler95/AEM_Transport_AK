@@ -1,5 +1,6 @@
-# Written by Willi Kappler, willi.kappler@uni-tuebingen.de
-# Based on code from Anton Köhler
+# Written by Alvin Yadav
+# Based on code from Willi Kappler and Anton Köhler
+
 """
 AEM Transport Simulation — main simulation class and supporting functions.
 

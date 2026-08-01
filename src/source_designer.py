@@ -1,3 +1,5 @@
+# Written by Alvin Yadav
+
 """
 AEM Source Designer
 Interactive matplotlib tool for drawing and editing source zones, then solving

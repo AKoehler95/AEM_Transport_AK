@@ -46,19 +46,26 @@ class ATConfiguration:
         # Debugging aid: [[x, y], ...] points at which the concentration is
         # evaluated and reported after the solve. Not intended for normal use.
         self.probe_points: list = []
-        # Write the solved concentration grid as long-form CSV (one row per
-        # grid point) at the end of a run. Off by default so an existing run
-        # produces exactly the files it always did.
-        self.export_csv: bool = False
+        # Which concentration-grid file(s) to write at the end of a run:
+        #   "none" (default) — write nothing, so a run is unchanged
+        #   "csv"            — long-form CSV, for spreadsheets / other tools
+        #   "npz"            — compact native grid, for the analysis workbench
+        #   "both"           — both files
+        self.concentration_output: str = "none"
         # Keep every n-th point on both axes when exporting. 1 = every point.
         # Only worth raising for a coarse overview of a very fine grid; the
         # full field is what makes the export worth having.
-        self.export_csv_step: int = 1
-        # Explicit CSV destination. Empty means "grid.csv inside this run's
-        # own directory". Setting it pins every run to one file, which is how
-        # a caller keeps a single always-current export (the write replaces
-        # the previous one atomically) instead of accumulating run folders.
-        self.export_csv_path: str = ""
+        self.export_step: int = 1
+        # Output path STEM (no extension) — the format adds .csv / .npz, so
+        # "both" can write two files from one setting. Empty means "grid"
+        # inside this run's own directory. Setting it pins every run to one
+        # stem, which is how a caller keeps a single always-current export
+        # (each write replaces the previous atomically) instead of
+        # accumulating run folders.
+        self.export_path: str = ""
+        # Store the .npz concentration as float32 (~7 sig figs, ~half the
+        # bytes) instead of full float64. CSV is unaffected.
+        self.export_npz_float32: bool = False
 
     @staticmethod
     def from_dict(data: dict) -> "ATConfiguration":
@@ -88,9 +95,19 @@ class ATConfiguration:
         config.use_xmax_predictor = data.get("use_xmax_predictor", config.use_xmax_predictor)
         config.allow_decoupling = data.get("allow_decoupling", config.allow_decoupling)
         config.probe_points = data.get("probe_points", config.probe_points)
-        config.export_csv = data.get("export_csv", config.export_csv)
-        config.export_csv_step = data.get("export_csv_step", config.export_csv_step)
-        config.export_csv_path = data.get("export_csv_path", config.export_csv_path)
+        config.concentration_output = data.get("concentration_output", config.concentration_output)
+        config.export_step = data.get("export_step", config.export_step)
+        config.export_path = data.get("export_path", config.export_path)
+        config.export_npz_float32 = data.get("export_npz_float32", config.export_npz_float32)
+
+        # Fail loud on a misspelled format — silently treating it as "none"
+        # would drop a website run's export with no clue why.
+        allowed = {"none", "csv", "npz", "both"}
+        if config.concentration_output not in allowed:
+            raise ValueError(
+                f"concentration_output must be one of {sorted(allowed)}, "
+                f"got {config.concentration_output!r}."
+            )
 
         for i, elem_data in enumerate(data.get("elements", [])):
             kind = elem_data["kind"].lower()

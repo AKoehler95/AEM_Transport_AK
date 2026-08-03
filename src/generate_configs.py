@@ -27,12 +27,13 @@ import json
 import math
 import os
 import random
+import numpy as np
 
 #USER CONFIG
 
 N_CONFIGS   = 200
 OUTPUT_DIR  = "mc_batch_01"
-RANDOM_SEED = 2027              # int for reproducibility, or None
+RANDOM_SEED = 5799              # int for reproducibility, or None
 ORIENTATION = "vertical"        # "horizontal" | "vertical"
 
 # How random samples are spread over the factor ranges:
@@ -50,9 +51,9 @@ RADIUS_FACTORS = {
     "COARSE": [0.12, 0.20, 0.30, 0.42],
     "BROAD":  [0.08, 0.14, 0.22, 0.32, 0.42],
 }
-CD_POOL = [3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 35.0, 50.0]   # donor conc. [mg/L]
+CD_POOL = np.linspace(10, 1000, 50, dtype=int).tolist() #[3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 35.0, 50.0]   # donor conc. [mg/L] 
 
-GAMMA_BOUNDS = (0.1, 50.0)      # valid range for the derived gamma
+GAMMA_BOUNDS = (3.5, 3.5) #(2, 20.0)      # valid range for the derived gamma
 
 
 class D:
@@ -66,24 +67,24 @@ class D:
 # is sampled. Constants and derived factors are excluded from the design matrix.
 FACTORS = {
     # Geometry
-    "ws":          5-0,                       # source width [m]
-    "y_span":      (2.0, 5.0),               # source height [m]
+    "ws":          5.0,                       # source width [m]
+    "y_span":      (2.0, 10.0),               # source height [m]
     "packing":     (0.10, 0.50),              # fraction of WS*y_span covered by circles
     "n_clusters":  {"choice": [2, 3, 4, 5], "weights": [1, 2, 3, 2]},
     "archetype":   {"choice": list("ACDEFHIJ")},    # spatial pattern; see ARCHETYPES
     "radius_pool": {"choice": ["FINE", "MED", "COARSE", "BROAD"]},
 
     # Transport
-    "alpha_l":     (0.5, 5.0),                # longitudinal dispersivity
+    "alpha_l":     (0.5, 2.0),                # longitudinal dispersivity
     "alpha_ratio": (0.05, 0.20),              # alpha_t / alpha_l
-    "alpha_t":     D(lambda f: f["alpha_l"] * f["alpha_ratio"]),
+    "alpha_t":     (0.0005, 0.1), #D(lambda f: f["alpha_l"] * f["alpha_ratio"]),
 
     # Chemical Term: specify any three of T, ca, cd, gamma; derive the fourth by
     # moving the D(...) wrapper. T = 1 + gamma*cd/ca.
     "T":           (2.0, 50.0),               # retardation-like ratio
     "ca":          8.0,                       # acceptor conc. [mg/L]
     "cd":          CD_POOL,                   # donor conc. [mg/L]
-    "gamma":       D(lambda f: (f["T"] - 1.0) * f["ca"] / f["cd"]),
+    "gamma":       3.5, #D(lambda f: (f["T"] - 1.0) * f["ca"] / f["cd"]),
 
     # Numerics
     "num_cp":      40,

@@ -1,11 +1,11 @@
 {
-    "alpha_l": 2.0,
-    "alpha_t": 0.2,
+    "alpha_l": 1.0,
+    "alpha_t": 0.05,
     "ca": 8.0,
     "gamma": 3.5,
 
     "dom_xmin": 0.0,
-    "dom_xmax": 30.0,
+    "dom_xmax": 100.0,
     "dom_ymin": -5.0,
     "dom_ymax": 0.0,
     "dom_inc": 0.5,
@@ -30,9 +30,9 @@
         {
             "kind": "circle",
             "x": 10,
-            "y": -2,
-            "c": 15,
-            "r": 1.5,
+            "y": -5,
+            "c": 10,
+            "r": 1,
             "id": "donor"
         }
     ]

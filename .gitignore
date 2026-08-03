@@ -204,5 +204,7 @@ simulation_config.json
 src/simulation_config.json
 src/inverse_model_files/findalpha_log.txt
 src/inverse_model_files/stats_values.txt
-/src/inverse_model_files
+src/inverse_model_files
+src/junk/
+src/mc_batch*/
 

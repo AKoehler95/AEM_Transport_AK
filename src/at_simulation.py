@@ -76,7 +76,7 @@ except Exception as style_err:      # pragma: no cover — environment dependent
 # Local imports:
 from at_config import ATConfiguration
 from at_element import ATElement, ATElementType
-from at_grid_export import grid_csv_bytes, write_grid_csv
+from at_grid_export import grid_csv_bytes, grid_npz_bytes, write_grid_csv, write_grid_npz
 
 logger = logging.getLogger(__name__)
 
@@ -311,9 +311,10 @@ class ATSimulation:
         Deepest y-coordinate (most negative) touched by the 0-contour, in
         meters. Used by check_vertical_adequacy to detect capping against
         the bottom (dom_ymin) boundary.
-    csv_path : str or None
-        Path of the concentration-grid CSV written by run(), or None when
-        config.export_csv is off. See at_grid_export for the format.
+    export_paths : list of str
+        Paths of the concentration-grid file(s) written by run() — a CSV, an
+        NPZ, both, or empty depending on config.concentration_output. See
+        at_grid_export for the formats.
     timer : _PhaseTimer
         Accumulates elapsed time per pipeline phase.
     """
@@ -328,8 +329,9 @@ class ATSimulation:
         self.L_max = None
         self.interface_length = None
         self.z_min_reached = None
-        # Set by run() when config.export_csv is enabled; stays None otherwise.
-        self.csv_path = None
+        # Filled by run() with the grid file(s) written; stays empty when
+        # config.concentration_output is "none".
+        self.export_paths = []
         self.validation_passed = None
         self.validation_reason = ""
         # Set by solve_system; also serves as the "has the system been solved"
@@ -476,16 +478,23 @@ class ATSimulation:
             results_dir, f"{self.run_index:04d}_{self.generate_run_label()}")
         os.makedirs(self.run_dir, exist_ok=True)
 
-        # Export the concentration grid as CSV. This runs after the dynamic
+        # Export the concentration grid. This runs after the dynamic
         # domain-extension loop above, so self.xaxis/yaxis/result are final —
         # exporting earlier could write a domain that was later grown.
-        if getattr(self.config, "export_csv", False):
-            self.timer.start("export_csv")
-            dest = self.config.export_csv_path or os.path.join(self.run_dir, "grid.csv")
-            self.csv_path = write_grid_csv(
-                dest, self.xaxis, self.yaxis, self.result,
-                step=self.config.export_csv_step)
-            print(f"Grid CSV written to {self.csv_path}")
+        fmt = getattr(self.config, "concentration_output", "none")
+        if fmt != "none":
+            self.timer.start("export_grid")
+            stem = self.config.export_path or os.path.join(self.run_dir, "grid")
+            if fmt in ("csv", "both"):
+                self.export_paths.append(write_grid_csv(
+                    stem + ".csv", self.xaxis, self.yaxis, self.result,
+                    step=self.config.export_step))
+            if fmt in ("npz", "both"):
+                self.export_paths.append(write_grid_npz(
+                    stem + ".npz", self.xaxis, self.yaxis, self.result,
+                    step=self.config.export_step,
+                    float32=self.config.export_npz_float32))
+            print(f"Grid exported: {', '.join(self.export_paths)}")
             self.timer.stop()
 
         self.timer.start("plot_input")
@@ -1331,6 +1340,18 @@ class ATSimulation:
         format and the ``step`` argument.
         """
         return grid_csv_bytes(self.xaxis, self.yaxis, self.result, step=step)
+
+    def grid_npz_bytes(self, step: int = 1, float32: bool = False) -> bytes:
+        """
+        Return the solved concentration grid as a compressed .npz, in memory.
+
+        The compact, workbench-native counterpart of grid_csv_bytes — for a
+        download or handoff that wants the native grid without leaving a file
+        behind. Requires conc_array to have run. See at_grid_export for the
+        layout and the ``float32`` option.
+        """
+        return grid_npz_bytes(self.xaxis, self.yaxis, self.result,
+                              step=step, float32=float32)
 
     # Post-processing
 

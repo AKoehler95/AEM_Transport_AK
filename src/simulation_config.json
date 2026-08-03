@@ -22,9 +22,10 @@
     "allow_decoupling": true,
     "probe_points": [],
 
-    "export_csv": false,
-    "export_csv_step": 1,
-    "export_csv_path": "",
+    "concentration_output": "none",
+    "export_step": 1,
+    "export_path": "",
+    "export_npz_float32": false,
 
     "elements": [
         {

@@ -62,20 +62,22 @@ def setup_logging():
                         format=log_format)
 
 
-def run_simulation(csv_overrides=None):
+def run_simulation(export_overrides=None):
     # Load configuration and run the full transport simulation
     config = ATConfiguration.from_json(CONFIG_PATH)
 
-    # CLI overrides for the CSV export, applied on top of the config file so a
-    # one-off run can request a CSV (or a different destination) without
-    # editing the JSON. None means "leave the config value alone".
-    if csv_overrides:
-        if csv_overrides.get("export_csv") is not None:
-            config.export_csv = csv_overrides["export_csv"]
-        if csv_overrides.get("export_csv_step") is not None:
-            config.export_csv_step = csv_overrides["export_csv_step"]
-        if csv_overrides.get("export_csv_path") is not None:
-            config.export_csv_path = csv_overrides["export_csv_path"]
+    # CLI overrides for the grid export, applied on top of the config file so a
+    # one-off run can request an export (or a different destination/format)
+    # without editing the JSON. None means "leave the config value alone".
+    if export_overrides:
+        if export_overrides.get("concentration_output") is not None:
+            config.concentration_output = export_overrides["concentration_output"]
+        if export_overrides.get("export_step") is not None:
+            config.export_step = export_overrides["export_step"]
+        if export_overrides.get("export_path") is not None:
+            config.export_path = export_overrides["export_path"]
+        if export_overrides.get("export_npz_float32") is not None:
+            config.export_npz_float32 = export_overrides["export_npz_float32"]
 
     # Optional: size the domain from the learned predictor instead of the
     # config's dom_xmax. Only saves the cost of a domain-extension pass —
@@ -106,24 +108,33 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Run the AEM transport simulation (see MODE / config paths "
                     "at the top of this file for the rest of the configuration).")
-    parser.add_argument("--csv", dest="export_csv", action="store_true", default=None,
-                        help="Write the concentration grid as CSV after the run "
-                             "(overrides export_csv in the config).")
-    parser.add_argument("--csv-step", dest="export_csv_step", type=int, default=None,
+    parser.add_argument("--format", dest="concentration_output", default=None,
+                        choices=["none", "csv", "npz", "both"],
+                        help="Which grid file(s) to write after the run "
+                             "(overrides concentration_output in the config).")
+    parser.add_argument("--step", dest="export_step", type=int, default=None,
                         metavar="N",
                         help="Keep every N-th grid point on both axes (1 = all). "
-                             "Implies --csv.")
-    parser.add_argument("--csv-path", dest="export_csv_path", type=str, default=None,
-                        metavar="PATH",
-                        help="Destination for the CSV. Default is grid.csv inside "
-                             "the run directory. Implies --csv.")
+                             "Implies --format both if no format is given.")
+    parser.add_argument("--path", dest="export_path", type=str, default=None,
+                        metavar="STEM",
+                        help="Output path stem (no extension; .csv/.npz are added). "
+                             "Default is 'grid' inside the run directory. "
+                             "Implies --format both if no format is given.")
+    parser.add_argument("--npz-float32", dest="export_npz_float32", action="store_true",
+                        default=None,
+                        help="Store the .npz concentration as float32 (~half the "
+                             "bytes). Implies an npz export if no format is given.")
     args = parser.parse_args(argv)
 
-    # Requesting a step or a path only makes sense with the export on, so turn
-    # it on implicitly rather than silently ignoring the other two flags.
-    if args.export_csv_step is not None or args.export_csv_path is not None:
-        if args.export_csv is None:
-            args.export_csv = True
+    # A step/path/float32 flag with no explicit --format only makes sense with
+    # an export on, so pick a sensible default rather than silently ignoring
+    # them: --npz-float32 implies npz, the others imply both.
+    if args.concentration_output is None:
+        if args.export_npz_float32 is not None:
+            args.concentration_output = "npz"
+        elif args.export_step is not None or args.export_path is not None:
+            args.concentration_output = "both"
     return args
 
 
@@ -132,14 +143,15 @@ def main():
     setup_logging()
 
     args = parse_args()
-    csv_overrides = {
-        "export_csv": args.export_csv,
-        "export_csv_step": args.export_csv_step,
-        "export_csv_path": args.export_csv_path,
+    export_overrides = {
+        "concentration_output": args.concentration_output,
+        "export_step": args.export_step,
+        "export_path": args.export_path,
+        "export_npz_float32": args.export_npz_float32,
     }
 
     if MODE == "simulate":
-        result = run_simulation(csv_overrides)
+        result = run_simulation(export_overrides)
         print("Simulation completed. Result tuple returned.")
     elif MODE == "inverse":
         inv_cfg = InverseConfiguration.from_json(INVERSE_CONFIG_PATH)

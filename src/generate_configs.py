@@ -83,7 +83,7 @@ FACTORS = {
 
     # Chemical Term: specify any three of T, ca, cd, gamma; derive the fourth by
     # moving the D(...) wrapper. T = 1 + gamma*cd/ca.
-    "T":           (2.0, 20.0),               # retardation-like ratio
+    "T":           (2.0, 50.0),               # retardation-like ratio
     "ca":          8.0,                       # acceptor conc. [mg/L]
     "cd":          CD_POOL,                   # donor conc. [mg/L]
     "gamma":       3.5, #D(lambda f: (f["T"] - 1.0) * f["ca"] / f["cd"]),

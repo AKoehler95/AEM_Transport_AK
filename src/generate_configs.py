@@ -29,6 +29,7 @@ import json
 import math
 import os
 import random
+import numpy as np
 
 #USER CONFIG
 
@@ -52,9 +53,9 @@ RADIUS_FACTORS = {
     "COARSE": [0.12, 0.20, 0.30, 0.42],
     "BROAD":  [0.08, 0.14, 0.22, 0.32, 0.42],
 }
-CD_POOL = [3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 35.0, 50.0]   # donor conc. [mg/L]
+CD_POOL = np.linspace(10, 500, 50, dtype=int).tolist()           # [3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 35.0, 50.0]   # donor conc. [mg/L]
 
-GAMMA_BOUNDS = (0.1, 20.0)      # valid range for the derived gamma
+GAMMA_BOUNDS = (3.5, 3.5)      # valid range for the derived gamma
 
 
 class D:
@@ -68,8 +69,8 @@ class D:
 # is sampled. Constants and derived factors are excluded from the design matrix.
 FACTORS = {
     # Geometry
-    "ws":          0.5,                       # source width [m]
-    "y_span":      (5.0, 25.0),               # source height [m]
+    "ws":          3.0,                       # source width [m]
+    "y_span":      (2.0, 5.0),               # source height [m]
     "packing":     (0.10, 0.50),              # fraction of WS*y_span covered by circles
     "n_clusters":  {"choice": [2, 3, 4, 5], "weights": [1, 2, 3, 2]},
     "archetype":   {"choice": list("ACDEFHIJ")},    # spatial pattern; see ARCHETYPES
@@ -85,7 +86,7 @@ FACTORS = {
     "T":           (2.0, 20.0),               # retardation-like ratio
     "ca":          8.0,                       # acceptor conc. [mg/L]
     "cd":          CD_POOL,                   # donor conc. [mg/L]
-    "gamma":       D(lambda f: (f["T"] - 1.0) * f["ca"] / f["cd"]),
+    "gamma":       3.5, #D(lambda f: (f["T"] - 1.0) * f["ca"] / f["cd"]),
 
     # Numerics
     "num_cp":      40,

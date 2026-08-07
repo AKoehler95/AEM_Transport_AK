@@ -182,7 +182,7 @@ def _compute_point(args):
                 Fi += block[2*j    ] * ce_vals[j]   * Ke_vals[j]
 
         F += Fi
-
+    
     total = F * np.exp(beta * x)
     if total > ca:
         conc = (total - ca) / gamma

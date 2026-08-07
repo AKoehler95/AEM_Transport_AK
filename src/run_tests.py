@@ -50,7 +50,7 @@ matplotlib.use('Agg')
 #                    instead of each config's built-in guess.
 #   LEARN          : True to append each clean run to the xmax dataset and
 #                    refit the model afterwards.
-CONFIG_DIR    = "mc_batch_02"
+CONFIG_DIR    = "mc_batch_test"
 USE_PREDICTOR = False
 LEARN         = True
 # ─────────────────────────────────────────────────────────────────────────────
@@ -61,7 +61,7 @@ SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 # a bare name like "batch_configs" works regardless of the IDE's working dir.
 if not os.path.isabs(CONFIG_DIR):
     CONFIG_DIR = os.path.join(SCRIPT_DIR, CONFIG_DIR)   # overridden in main() from argv
-RESULTS_DIR = os.path.join(SCRIPT_DIR, "batch_results/Batch_02")
+RESULTS_DIR = os.path.join(SCRIPT_DIR, "batch_results/Batch_test")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Dataset path for the learned dom_xmax predictor (xmax_features.py /
@@ -70,7 +70,7 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 from xmax_predictor import DEFAULT_DATASET_PATH as LMAX_DATASET_PATH
 
 # Maximum wall-clock time per test before it is marked TIMEOUT.
-TEST_TIMEOUT = 500
+TEST_TIMEOUT = 1000
 
 # Log capture
 log_capture = io.StringIO()

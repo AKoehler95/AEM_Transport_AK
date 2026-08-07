@@ -183,7 +183,7 @@ def _compute_point(args):
 
         F += Fi
 
-    total = F * math.exp(beta * x)
+    total = F * np.exp(beta * x)
     if total > ca:
         conc = (total - ca) / gamma
     else:

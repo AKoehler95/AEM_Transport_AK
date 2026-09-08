@@ -1,0 +1,40 @@
+{
+    "alpha_l": 1.0,
+    "alpha_t": 0.05,
+    "ca": 8.0,
+    "gamma": 3.5,
+
+    "dom_xmin": 0.0,
+    "dom_xmax": 100.0,
+    "dom_ymin": -5.0,
+    "dom_ymax": 0.0,
+    "dom_inc": 0.5,
+
+    "num_cp": 100,
+    "num_terms": 7,
+
+    "orientation": "vertical",
+    "plot_aspect": "",
+
+    "show_plots": true,
+    "dynamic_domain": true,
+    "use_xmax_predictor": false,
+    "allow_decoupling": true,
+    "probe_points": [],
+
+    "concentration_output": "none",
+    "export_step": 1,
+    "export_path": "",
+    "export_npz_float32": false,
+
+    "elements": [
+        {
+            "kind": "circle",
+            "x": 10,
+            "y": -5,
+            "c": 10,
+            "r": 1,
+            "id": "donor"
+        }
+    ]
+}

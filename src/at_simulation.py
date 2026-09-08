@@ -100,6 +100,21 @@ _shared_beta = None
 _shared_ca = None
 _shared_gamma = None
 
+# Largest argument np.exp/math.exp can take before overflowing float64
+# (exp(709.78) ~ 1.8e308). Used as the last-resort saturation guard on the
+# final exponentiation in the log-space reconstruction.
+EXP_ARG_MAX = 709.0
+
+# |beta*x| beyond which the direct product F * exp(beta*x) is no longer
+# trusted and the reconstruction switches to log space. Held below
+# EXP_ARG_MAX with margin because the two factors fail together: F decays
+# like exp(-beta*x), so it slides into the denormal range — losing precision
+# silently, without raising anything — slightly before exp(beta*x) overflows.
+# Below this threshold the direct product is bit-identical to what the code
+# computed before log space existed, which is why short domains are
+# unaffected by this change and pay nothing for it.
+LOGSPACE_SWITCH = 600.0
+
 def _init_pool(elements, coeff, num_terms, alpha_l, alpha_t, beta, ca, gamma):
     """
     Pool initializer that copies simulation state into each worker process.
@@ -135,6 +150,96 @@ def _compute_point_shared(args):
     ))
 
 
+def _log_field_terms(x, y, elements, coeff, num_terms, alpha_l, alpha_t):
+    """
+    Return (log_magnitudes, signs) for every basis-function term making up F
+    at (x, y), pooled across all elements, as two flat arrays.
+
+    Each term is coeff * angular * radial. The angular factors (ce, se) are
+    bounded oscillatory functions and need no special handling; the whole
+    dynamic range sits in the radial factors (Ke, Ko), which is why those are
+    taken from log_Ke/log_Ko rather than Ke/Ko. Terms that are exactly zero
+    come back with log = -inf and sign = 0 and are dropped by the caller.
+    """
+    total_terms = 2 * num_terms - 1
+    orders_all = np.arange(num_terms)
+    orders_odd = np.arange(1, num_terms) if num_terms > 1 else np.array([], dtype=int)
+
+    logs = []
+    signs = []
+    # log(0) for a vanishing coefficient or a zero crossing of ce/se is
+    # expected and handled by the caller's finite mask, not an error.
+    with np.errstate(divide='ignore', invalid='ignore'):
+        for idx, elem in enumerate(elements):
+            eta, psi = elem.uv(x - elem.x, y - elem.y, alpha_l, alpha_t)
+            block = coeff[idx * total_terms: (idx + 1) * total_terms]
+
+            # Even terms: block[0], block[2], ... paired with ce_j * Ke_j
+            ce_vals = np.atleast_1d(elem.m.ce(orders_all, psi).real)
+            log_ke, sgn_ke = elem.m.log_Ke(orders_all, eta)
+            amp = block[0::2] * ce_vals
+            logs.append(np.log(np.abs(amp)) + np.atleast_1d(log_ke))
+            signs.append(np.sign(amp) * np.atleast_1d(sgn_ke))
+
+            # Odd terms: block[1], block[3], ... paired with se_j * Ko_j
+            if num_terms > 1:
+                se_vals = np.atleast_1d(elem.m.se(orders_odd, psi).real)
+                log_ko, sgn_ko = elem.m.log_Ko(orders_odd, eta)
+                amp = block[1::2] * se_vals
+                logs.append(np.log(np.abs(amp)) + np.atleast_1d(log_ko))
+                signs.append(np.sign(amp) * np.atleast_1d(sgn_ko))
+
+    return np.concatenate(logs), np.concatenate(signs)
+
+
+def _logspace_total(x, y, elements, coeff, num_terms, alpha_l, alpha_t, beta):
+    """
+    Reconstruct total = F * exp(beta*x) without ever forming F or exp(beta*x).
+
+    Returns (total, cancellation_ratio).
+
+    The direct product is only representable while |beta*x| < ~709: past that
+    F has underflowed to 0 and exp(beta*x) has overflowed to inf, and 0*inf is
+    nan. Neither factor is individually meaningful there — their *product* is
+    perfectly well behaved, because log|Ke| ~ -beta*x cancels the advection
+    term almost exactly. Absorbing exp(beta*x) into the log-space sum before
+    exponentiating once keeps the whole computation inside float64 range at
+    any distance, which is what lifts the ~709/beta cap on domain size.
+
+    The sum itself is a sign-aware logsumexp: the largest term is factored out
+    so every exponential argument is <= 0.
+
+    cancellation_ratio is max|term| / |sum| — how much of the result was eaten
+    by cancellation between terms. Around 1e1-1e2 is normal here (under two
+    decimal digits lost). A value near 1e10 or above means precision is being
+    destroyed and the answer should not be trusted.
+    """
+    log_terms, sign_terms = _log_field_terms(
+        x, y, elements, coeff, num_terms, alpha_l, alpha_t)
+
+    keep = np.isfinite(log_terms) & (sign_terms != 0.0)
+    if not np.any(keep):
+        return 0.0, 1.0
+
+    lt = log_terms[keep]
+    st = sign_terms[keep]
+    log_max = float(lt.max())
+    s = float(np.sum(st * np.exp(lt - log_max)))
+    if s == 0.0:
+        return 0.0, np.inf
+
+    log_total = log_max + math.log(abs(s)) + beta * x
+    cancellation = 1.0 / abs(s)     # == max|term| / |sum|
+
+    if log_total > EXP_ARG_MAX:
+        # Last-resort guard, not the normal path. With the advection absorbed
+        # this is unreachable for a physical solution; saturating rather than
+        # returning inf keeps a stray point from seeding nan across the grid
+        # and breaking the contour extraction that L_max depends on.
+        log_total = EXP_ARG_MAX
+    return math.copysign(math.exp(log_total), s), cancellation
+
+
 def _compute_point(args):
     """
     Evaluate the concentration field at a single (x, y) point.
@@ -160,30 +265,45 @@ def _compute_point(args):
     orders_all = np.arange(num_terms)
     orders_odd = np.arange(1, num_terms) if num_terms > 1 else np.array([], dtype=int)
 
-    F = 0.0
-    for idx, elem in enumerate(elements):
-        dx = x - elem.x
-        dy = y - elem.y
-        eta, psi = elem.uv(dx, dy, alpha_l, alpha_t)
+    # Hybrid reconstruction: take the direct product while it is safely in
+    # range, and only fall back to the log-space path beyond that. This keeps
+    # results on ordinary domains bit-identical to the pre-log-space code and
+    # costs nothing there — _compute_point is 67-88% of runtime, so the extra
+    # log per term is worth avoiding when it buys nothing.
+    arg = beta * x
+    total = None
+    if abs(arg) <= LOGSPACE_SWITCH:
+        F = 0.0
+        for idx, elem in enumerate(elements):
+            dx = x - elem.x
+            dy = y - elem.y
+            eta, psi = elem.uv(dx, dy, alpha_l, alpha_t)
 
-        block = coeff[idx * total_terms: (idx + 1) * total_terms]
+            block = coeff[idx * total_terms: (idx + 1) * total_terms]
 
-        # Batch all Mathieu orders into a single call each
-        ce_vals = elem.m.ce(orders_all, psi).real
-        Ke_vals = elem.m.Ke(orders_all, eta).real
+            # Batch all Mathieu orders into a single call each
+            ce_vals = elem.m.ce(orders_all, psi).real
+            Ke_vals = elem.m.Ke(orders_all, eta).real
 
-        Fi = block[0] * ce_vals[0] * Ke_vals[0]
+            Fi = block[0] * ce_vals[0] * Ke_vals[0]
 
-        if num_terms > 1:
-            se_vals = elem.m.se(orders_odd, psi).real
-            Ko_vals = elem.m.Ko(orders_odd, eta).real
-            for j in range(1, num_terms):
-                Fi += block[2*j - 1] * se_vals[j-1] * Ko_vals[j-1]
-                Fi += block[2*j    ] * ce_vals[j]   * Ke_vals[j]
+            if num_terms > 1:
+                se_vals = elem.m.se(orders_odd, psi).real
+                Ko_vals = elem.m.Ko(orders_odd, eta).real
+                for j in range(1, num_terms):
+                    Fi += block[2*j - 1] * se_vals[j-1] * Ko_vals[j-1]
+                    Fi += block[2*j    ] * ce_vals[j]   * Ke_vals[j]
 
-        F += Fi
-    
-    total = F * np.exp(beta * x)
+            F += Fi
+
+        total = F * math.exp(arg)
+        if not math.isfinite(total):
+            total = None    # 0*inf or inf*0 — redo the point in log space
+
+    if total is None:
+        total, _ = _logspace_total(x, y, elements, coeff, num_terms,
+                                   alpha_l, alpha_t, beta)
+
     if total > ca:
         conc = (total - ca) / gamma
     else:
@@ -623,21 +743,22 @@ class ATSimulation:
         return row
 
     def _build_group_system(self, group_indices, elements,
-                            alpha_l, alpha_t, beta, ca, gamma, n,
-                            cross_term_floor=1e-250):
+                            alpha_l, alpha_t, beta, ca, gamma, n):
         """
         Assemble the least-squares matrix A and RHS vector b for a group
-        of elements.
+        of elements, together with the diagonal equilibration factors
+        (Dr, Dc) that _equilibrate applies to them.
 
         For each element pair (i, j) in the group, evaluates element j's
         Mathieu basis functions at all of element i's control points in a
         single batched call.
 
-        Cross-element blocks whose entries are all below cross_term_floor
-        are zeroed out — these are contributions from distant elements that
-        are numerically negligible and would only introduce noise.
-
         Self-element blocks along the diagonal use eta=0 for line elements.
+
+        Returns (A, b, Dr, Dc). A and b are the raw, unscaled system — the
+        decoupled solver corrects b with unscaled field values before any
+        scaling is applied, so the scaling is deliberately kept as a separate
+        step rather than baked in here.
         """
         group_elements = [elements[k] for k in group_indices]
         ng = len(group_elements)
@@ -652,6 +773,25 @@ class ATSimulation:
 
         A = np.zeros((total_rows, total_cols))
         b = np.zeros(total_rows)
+
+        # Equilibration factors (see _equilibrate). One per equation, keyed on
+        # the control point's x; one per unknown, keyed on the owning element's
+        # x. Both are measured from x0 purely to keep the exponentials in
+        # range: a common factor c in Dr and 1/c in Dc cancels out of the
+        # scaled system exactly, so the choice of x0 cannot change the answer,
+        # whereas exp(beta*x) on absolute x overflows for x beyond ~2839 m.
+        elem_x = np.array([e.x for e in group_elements], dtype=float)
+        x0 = float(np.mean(elem_x)) if ng else 0.0
+        row_x = (np.concatenate([np.array([p[0] for p in e.outline], dtype=float)
+                                 for e in group_elements])
+                 if ng else np.zeros(0))
+        col_x = np.repeat(elem_x, total_terms)
+        # Clipping only bites for elements more than ~709/beta apart, which are
+        # numerically non-interacting anyway. Any positive diagonal is a valid
+        # change of variable, so a clipped factor stays exact — it just weights
+        # those equations slightly differently than the uncapped value would.
+        Dr = np.exp(np.clip(beta * (row_x - x0), -EXP_ARG_MAX, EXP_ARG_MAX))
+        Dc = np.exp(np.clip(-beta * (col_x - x0), -EXP_ARG_MAX, EXP_ARG_MAX))
 
         row_offset = 0
         for i_local, e_i in enumerate(group_elements):
@@ -697,16 +837,40 @@ class ATSimulation:
                         A[row_offset:row_offset+ncp_i, col_start + 2*j] = \
                             ce_vals[j] * Ke_vals[j]
 
-                # Zero out negligible cross-element blocks
-                if i_local != j_local:
-                    block_slice = A[row_offset:row_offset+ncp_i,
-                                    col_start:col_start+total_terms]
-                    if np.max(np.abs(block_slice)) < cross_term_floor:
-                        block_slice[:] = 0.0
-
             row_offset += ncp_i
 
-        return A, b
+        return A, b, Dr, Dc
+
+    @staticmethod
+    def _equilibrate(A, b, Dr, Dc):
+        """
+        Apply the diagonal change of variable  A -> Dr A Dc,  b -> Dr b.
+
+        Solve the scaled system for x_hat, then recover x = Dc * x_hat. On a
+        square, consistent system this is exact — scaled and unscaled
+        solutions agree to ~1e-16. It changes the answer only because the real
+        system is overdetermined (200 equations, 26 unknowns), where the row
+        factors decide which equations the least-squares residual cares about.
+
+        Why it is needed: the boundary target is
+        b_i = (C*gamma + ca) * exp(-beta*x_cp_i), so b spans
+        exp(beta * element x-spread) orders of magnitude — 12 orders for two
+        sources only 110 m apart at alpha_l=2. lstsq minimises the *global*
+        sum of squared residuals, so the downstream element's rows contribute
+        ~1e-24 and its prescribed concentration is silently ignored (198%
+        boundary error in the repo's own default config). After scaling, both
+        elements' equations state their prescribed C at the same O(1) scale.
+
+        This is invisible to cond(A): the scale disparity lives in b, not in
+        A, which is why the ill-conditioning gate never caught it and why this
+        is a separate problem from decoupling.
+
+        Note the modelling decision it encodes: row scaling changes the
+        least-squares objective from "minimise absolute error" to "minimise
+        relative error per boundary condition". That is the right objective for
+        this physics, and it is why multi-element results can move at all.
+        """
+        return A * Dr[:, None] * Dc[None, :], b * Dr
 
     def _solve_scaled_lstsq(self, A, b, rcond=1e-10):
         """
@@ -794,9 +958,11 @@ class ATSimulation:
         number of the assembled matrix is below the threshold in solve_system.
         """
         all_indices = list(range(len(elements)))
-        A, b = self._build_group_system(
+        A, b, Dr, Dc = self._build_group_system(
             all_indices, elements, alpha_l, alpha_t, beta, ca, gamma, n)
-        coeffs, _ = self._solve_scaled_lstsq(A, b)
+        A_eq, b_eq = self._equilibrate(A, b, Dr, Dc)
+        coeffs_hat, _ = self._solve_scaled_lstsq(A_eq, b_eq)
+        coeffs = Dc * coeffs_hat        # undo the change of variable
         coeff = np.zeros(len(elements) * total_terms)
         for li, gi in enumerate(all_indices):
             coeff[gi*total_terms:(gi+1)*total_terms] = \
@@ -821,14 +987,14 @@ class ATSimulation:
         num_elements = len(elements)
         group_data = []
         for group in groups:
-            A, b_original = self._build_group_system(
+            A, b_original, Dr, Dc = self._build_group_system(
                 group, elements, alpha_l, alpha_t, beta, ca, gamma, n)
             control_points = []
             for g_idx in group:
                 for (x_cp, y_cp) in elements[g_idx].outline:
                     control_points.append((x_cp, y_cp))
             group_data.append({
-                'indices': group, 'A': A,
+                'indices': group, 'A': A, 'Dr': Dr, 'Dc': Dc,
                 'b_original': b_original, 'control_points': control_points,
             })
 
@@ -853,7 +1019,12 @@ class ATSimulation:
                             x_cp, y_cp, alpha_l, alpha_t)
                         b_corrected[cp_idx] -= F_other
 
-                coeffs, _ = self._solve_scaled_lstsq(gd['A'], b_corrected)
+                # Equilibrate only after the cross-group correction: the
+                # subtracted field values are unscaled, so b must be too.
+                A_eq, b_eq = self._equilibrate(
+                    gd['A'], b_corrected, gd['Dr'], gd['Dc'])
+                coeffs_hat, _ = self._solve_scaled_lstsq(A_eq, b_eq)
+                coeffs = gd['Dc'] * coeffs_hat
                 for local_idx, global_idx in enumerate(group):
                     start = global_idx * total_terms
                     local_start = local_idx * total_terms
@@ -959,10 +1130,16 @@ class ATSimulation:
         }
 
         all_indices = list(range(num_elements))
-        A, b = self._build_group_system(
+        A, b, Dr, Dc = self._build_group_system(
             all_indices, elements, alpha_l, alpha_t, beta, ca, gamma, n)
+        A_eq, b_eq = self._equilibrate(A, b, Dr, Dc)
 
-        coeffs, residuals, rank, sv = np.linalg.lstsq(A, b, rcond=None)
+        coeffs_hat, residuals, rank, sv = np.linalg.lstsq(A_eq, b_eq, rcond=None)
+        coeffs = Dc * coeffs_hat        # undo the change of variable
+        # Note this is now the condition number of the equilibrated matrix,
+        # which is the one actually solved. It is the right number to gate the
+        # decoupling decision on, but it is not comparable to condition
+        # numbers recorded by runs from before equilibration.
         cond = np.inf
         if sv is not None and len(sv) > 0:
             cond = sv[0] / sv[-1] if sv[-1] > 0 else np.inf
@@ -1084,9 +1261,10 @@ class ATSimulation:
         if len(contained_units) <= 1:
             return [indices]
 
-        A, b = self._build_group_system(
+        A, b, Dr, Dc = self._build_group_system(
             indices, elements, alpha_l, alpha_t, beta, ca, gamma, n)
-        coeffs, cond = self._solve_scaled_lstsq(A, b)
+        A_eq, b_eq = self._equilibrate(A, b, Dr, Dc)
+        _, cond = self._solve_scaled_lstsq(A_eq, b_eq)
 
         if cond < cond_threshold:
             return [indices]
@@ -1206,40 +1384,73 @@ class ATSimulation:
         The reaction-term mapping mirrors _compute_point:
           - F * exp(beta*x) > ca:  donor regime, C = (F*exp(beta*x) - ca) / gamma
           - F * exp(beta*x) <= ca: acceptor regime, C = F*exp(beta*x) - ca
+
+        The direct/log-space switch also mirrors _compute_point. The two
+        routines have diverged before, so keep any change to one in step with
+        the other.
         """
         n = self.config.num_terms
         alpha_l = self.config.alpha_l
         alpha_t = self.config.alpha_t
+        beta = self.config.beta
         total_coeffs = self.coeff
         total_terms = 2 * n - 1
 
         orders_all = np.arange(n)
         orders_odd = np.arange(1, n) if n > 1 else np.array([], dtype=int)
 
-        F = 0.0
-        for idx, elem in enumerate(self.config.elements):
-            dx = x - elem.x
-            dy = y - elem.y
-            eta, psi = elem.uv(dx, dy, alpha_l, alpha_t)
-            coeffs = total_coeffs[idx * total_terms:(idx + 1) * total_terms]
+        arg = beta * x
+        total = None
+        if abs(arg) <= LOGSPACE_SWITCH:
+            F = 0.0
+            for idx, elem in enumerate(self.config.elements):
+                dx = x - elem.x
+                dy = y - elem.y
+                eta, psi = elem.uv(dx, dy, alpha_l, alpha_t)
+                coeffs = total_coeffs[idx * total_terms:(idx + 1) * total_terms]
 
-            ce_vals = elem.m.ce(orders_all, psi).real
-            Ke_vals = elem.m.Ke(orders_all, eta).real
-            Fi = coeffs[0] * ce_vals[0] * Ke_vals[0]
+                ce_vals = elem.m.ce(orders_all, psi).real
+                Ke_vals = elem.m.Ke(orders_all, eta).real
+                Fi = coeffs[0] * ce_vals[0] * Ke_vals[0]
 
-            if n > 1:
-                se_vals = elem.m.se(orders_odd, psi).real
-                Ko_vals = elem.m.Ko(orders_odd, eta).real
-                for j in range(1, n):
-                    Fi += coeffs[2*j-1] * se_vals[j-1] * Ko_vals[j-1]
-                    Fi += coeffs[2*j]   * ce_vals[j]   * Ke_vals[j]
-            F += Fi
+                if n > 1:
+                    se_vals = elem.m.se(orders_odd, psi).real
+                    Ko_vals = elem.m.Ko(orders_odd, eta).real
+                    for j in range(1, n):
+                        Fi += coeffs[2*j-1] * se_vals[j-1] * Ko_vals[j-1]
+                        Fi += coeffs[2*j]   * ce_vals[j]   * Ke_vals[j]
+                F += Fi
 
-        total = F * np.exp(self.config.beta * x)
+            total = F * math.exp(arg)
+            if not math.isfinite(total):
+                total = None
+
+        if total is None:
+            total, _ = _logspace_total(x, y, self.config.elements, self.coeff,
+                                       n, alpha_l, alpha_t, beta)
+
         if total > self.config.ca:
             return (total - self.config.ca) / self.config.gamma
         else:
             return total - self.config.ca
+
+    def cancellation_ratio(self, x, y):
+        """
+        Return max|term| / |sum| for the field reconstruction at (x, y).
+
+        A precision diagnostic for the log-space path, not part of the normal
+        pipeline. Absorbing exp(beta*x) into the sum fixes the *range* problem
+        but says nothing about cancellation between terms of opposite sign,
+        so this is the number to check when a far-field result looks wrong.
+
+        Expect ~1e1-1e2 (0.6-1.9 decimal digits lost) even far out. If it
+        climbs toward 1e10 the answer is being eaten by cancellation and
+        logsumexp will not save it — that needs a different fix.
+        """
+        _, ratio = _logspace_total(
+            x, y, self.config.elements, self.coeff, self.config.num_terms,
+            self.config.alpha_l, self.config.alpha_t, self.config.beta)
+        return ratio
 
     def probe_concentration(self, points=None):
         """
@@ -1438,7 +1649,15 @@ class ATSimulation:
                 min_row_overall = min(min_row_overall, float(np.min(v[:, 1])))
 
             if chosen is not None and len(chosen) > 1:
-                self.L_max = int(max_x_overall * self.config.dom_inc)
+                # contour() returns column indices in v[:, 0]; column 0 maps to
+                # dom_xmin, so the origin has to be added back to turn an index
+                # into an x-coordinate — the same conversion z_min_reached does
+                # below. Without the offset L_max is a distance from the left
+                # edge rather than an x, which every consumer already assumes
+                # it is not: run() and check_domain_adequacy both compute
+                # `L_max - dom_xmin`, so a missing origin gets double-counted.
+                self.L_max = int(self.config.dom_xmin
+                                 + max_x_overall * self.config.dom_inc)
                 diffs = np.diff(chosen, axis=0)
                 self.interface_length = float(
                     np.sum(np.hypot(diffs[:, 0], diffs[:, 1])) * self.config.dom_inc)

@@ -406,14 +406,20 @@ class Mathieu(object):
         y[n==0,:] = np.nan
         return np.squeeze(y)
 
-    def Ke(self,n,z):
-        """even second-kind radial Mathieu function (Ke)
-        analogous to K Bessel functions, called Fek in McLachlan p248 (eq 5&6),
-        for scalar or vector orders or argument
+    def _Ke_parts(self,n,z):
+        """Factored form of Ke: returns (core, offset) with
 
-        n: order (scalar or vector)
-        z: radial argument (scalar or vector)"""
+               Ke(n,z) = core * exp(offset)
 
+        `core` is built from the *exponentially scaled* Bessel functions
+        ive()/kve(), so it stays O(1) over the whole useful range of z; the
+        entire dynamic range of Ke lives in the scalar `offset` exponent.
+        Ke() below simply multiplies the two back together, while log_Ke()
+        keeps them apart so the magnitude can be carried in log space and
+        never has to fit in a float64.
+
+        Shapes: core is (n, z), offset is (z,).
+        """
         from scipy.special import kve,ive
         n,z,sqrtq,v1,v2,M,EV,OD = self._RadFuncSetup(n,z)
         y = np.empty((n.shape[0],z.shape[0]),dtype=complex)
@@ -429,17 +435,51 @@ class Mathieu(object):
                           (I[0:M,:,:]*K[1:M+1,:,:] - I[1:M+1,:,:]*K[0:M,:,:]),axis=0)/
                    self.B[0,j[OD],1,:])
 
-        y *= np.exp(np.abs(v1.real) - v2)[None,:]
-        return np.squeeze(y)
+        return y, np.abs(v1.real) - v2
 
-    def Ko(self,n,z):
-        """odd second-kind radial Mathieu function (Ko)
-        (analogous to K Bessel functions, called Gek in McLachlan p248),
+    def Ke(self,n,z):
+        """even second-kind radial Mathieu function (Ke)
+        analogous to K Bessel functions, called Fek in McLachlan p248 (eq 5&6),
         for scalar or vector orders or argument
 
         n: order (scalar or vector)
         z: radial argument (scalar or vector)"""
 
+        y, offset = self._Ke_parts(n,z)
+        y *= np.exp(offset)[None,:]
+        return np.squeeze(y)
+
+    def log_Ke(self,n,z):
+        """log-magnitude form of Ke: returns (log|Ke|, sign(Ke)).
+
+        Same value as Ke(), split so that it survives arguments where Ke()
+        itself underflows to 0.0. The offset exponent is added rather than
+        exponentiated, so the result stays finite for any z.
+
+        Only the real part is carried, which is what every caller of Ke() in
+        this project uses. That is exact for real-positive q (here
+        q = d^2*beta^2/4, always real-positive); for genuinely complex q the
+        discarded phase would matter and this routine must not be used.
+
+        Where Ke() works, exp(log|Ke|) * sign reproduces it bit-for-bit.
+        """
+        core, offset = self._Ke_parts(n,z)
+        c = core.real
+        with np.errstate(divide='ignore'):
+            log_mag = np.log(np.abs(c)) + offset.real[None,:]
+        return np.squeeze(log_mag), np.squeeze(np.sign(c))
+
+    def _Ko_parts(self,n,z):
+        """Factored form of Ko: returns (core, offset) with
+
+               Ko(n,z) = core * exp(offset)
+
+        See _Ke_parts for why the exponent is kept separate. The Ko_0 = nan
+        convention is *not* applied here; Ko() and log_Ko() each apply it to
+        their own return value.
+
+        Shapes: core is (n, z), offset is (z,).
+        """
         from scipy.special import kve,ive
         n,z,sqrtq,v1,v2,M,EV,OD = self._RadFuncSetup(n,z)
         y = np.empty((n.shape[0],z.shape[0]),dtype=complex)
@@ -457,9 +497,38 @@ class Mathieu(object):
                      (I[0:M,:,:]*K[1:M+1,:,:] + I[1:M+1,:,:]*K[0:M,:,:]),axis=0)/
                    self.A[0,j[OD],1,:])
 
-        y *= np.exp(np.abs(v1.real) - v2)[None,:]
+        return y, np.abs(v1.real) - v2
+
+    def Ko(self,n,z):
+        """odd second-kind radial Mathieu function (Ko)
+        (analogous to K Bessel functions, called Gek in McLachlan p248),
+        for scalar or vector orders or argument
+
+        n: order (scalar or vector)
+        z: radial argument (scalar or vector)"""
+
+        n = np.atleast_1d(n)
+        y, offset = self._Ko_parts(n,z)
+        y *= np.exp(offset)[None,:]
         y[n==0,:] = np.nan   # Ko_0() invalid
         return np.squeeze(y)
+
+    def log_Ko(self,n,z):
+        """log-magnitude form of Ko: returns (log|Ko|, sign(Ko)).
+
+        The log-space counterpart of Ko(), exactly as log_Ke() is to Ke() —
+        see that docstring for the real-q caveat. Order 0 is nan in both the
+        magnitude and the sign, matching Ko()'s own convention.
+        """
+        n = np.atleast_1d(n)
+        core, offset = self._Ko_parts(n,z)
+        c = core.real
+        with np.errstate(divide='ignore'):
+            log_mag = np.log(np.abs(c)) + offset.real[None,:]
+        sign = np.sign(c)
+        log_mag[n==0,:] = np.nan   # Ko_0() invalid
+        sign[n==0,:] = np.nan
+        return np.squeeze(log_mag), np.squeeze(sign)
 
     ##################################################
     ##################################################

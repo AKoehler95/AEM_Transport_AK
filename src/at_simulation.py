@@ -100,19 +100,20 @@ _shared_beta = None
 _shared_ca = None
 _shared_gamma = None
 
-# Largest argument np.exp/math.exp can take before overflowing float64
-# (exp(709.78) ~ 1.8e308). Used as the last-resort saturation guard on the
-# final exponentiation in the log-space reconstruction.
+# The largest value that math.exp() and np.exp() can be given. Above it the
+# answer does not fit in a float64: math.exp() raises OverflowError and
+# np.exp() returns inf. exp(709.78) is about 1.8e308.
 EXP_ARG_MAX = 709.0
 
-# |beta*x| beyond which the direct product F * exp(beta*x) is no longer
-# trusted and the reconstruction switches to log space. Held below
-# EXP_ARG_MAX with margin because the two factors fail together: F decays
-# like exp(-beta*x), so it slides into the denormal range — losing precision
-# silently, without raising anything — slightly before exp(beta*x) overflows.
-# Below this threshold the direct product is bit-identical to what the code
-# computed before log space existed, which is why short domains are
-# unaffected by this change and pay nothing for it.
+# The value of |beta*x| where the field reconstruction stops using the plain
+# product F * exp(beta*x) and switches to log space.
+#
+# This sits below EXP_ARG_MAX on purpose. F shrinks like exp(-beta*x) while
+# exp(beta*x) grows, so the two run out of float64 range at roughly the same
+# distance, but F gets there slightly first: it enters the denormal range,
+# where it loses precision quietly without raising anything. Below this
+# threshold the plain product gives exactly the same numbers the code produced
+# before log space was added, so short domains are unaffected and pay nothing.
 LOGSPACE_SWITCH = 600.0
 
 def _init_pool(elements, coeff, num_terms, alpha_l, alpha_t, beta, ca, gamma):
@@ -152,14 +153,17 @@ def _compute_point_shared(args):
 
 def _log_field_terms(x, y, elements, coeff, num_terms, alpha_l, alpha_t):
     """
-    Return (log_magnitudes, signs) for every basis-function term making up F
-    at (x, y), pooled across all elements, as two flat arrays.
+    Return the log magnitude and the sign of every term that makes up F at
+    (x, y), gathered from all elements into two flat arrays.
 
-    Each term is coeff * angular * radial. The angular factors (ce, se) are
-    bounded oscillatory functions and need no special handling; the whole
-    dynamic range sits in the radial factors (Ke, Ko), which is why those are
-    taken from log_Ke/log_Ko rather than Ke/Ko. Terms that are exactly zero
-    come back with log = -inf and sign = 0 and are dropped by the caller.
+    Every term is coeff * angular * radial. The angular parts (ce and se) stay
+    within a small range of values, so they are used as they are. Everything
+    that gets extremely large or extremely small comes from the radial parts
+    (Ke and Ko), so those are taken from log_Ke and log_Ko, which return the
+    log magnitude instead of the value itself.
+
+    A term that is exactly zero comes back as log = -inf with sign = 0. The
+    caller drops those.
     """
     total_terms = 2 * num_terms - 1
     orders_all = np.arange(num_terms)
@@ -167,21 +171,22 @@ def _log_field_terms(x, y, elements, coeff, num_terms, alpha_l, alpha_t):
 
     logs = []
     signs = []
-    # log(0) for a vanishing coefficient or a zero crossing of ce/se is
-    # expected and handled by the caller's finite mask, not an error.
+    # log(0) happens whenever a coefficient is zero or ce/se crosses zero.
+    # That is normal here, so the warning is switched off. The caller removes
+    # the resulting -inf values.
     with np.errstate(divide='ignore', invalid='ignore'):
         for idx, elem in enumerate(elements):
             eta, psi = elem.uv(x - elem.x, y - elem.y, alpha_l, alpha_t)
             block = coeff[idx * total_terms: (idx + 1) * total_terms]
 
-            # Even terms: block[0], block[2], ... paired with ce_j * Ke_j
+            # Even terms: block[0], block[2], ... go with ce_j * Ke_j
             ce_vals = np.atleast_1d(elem.m.ce(orders_all, psi).real)
             log_ke, sgn_ke = elem.m.log_Ke(orders_all, eta)
             amp = block[0::2] * ce_vals
             logs.append(np.log(np.abs(amp)) + np.atleast_1d(log_ke))
             signs.append(np.sign(amp) * np.atleast_1d(sgn_ke))
 
-            # Odd terms: block[1], block[3], ... paired with se_j * Ko_j
+            # Odd terms: block[1], block[3], ... go with se_j * Ko_j
             if num_terms > 1:
                 se_vals = np.atleast_1d(elem.m.se(orders_odd, psi).real)
                 log_ko, sgn_ko = elem.m.log_Ko(orders_odd, eta)
@@ -194,25 +199,30 @@ def _log_field_terms(x, y, elements, coeff, num_terms, alpha_l, alpha_t):
 
 def _logspace_total(x, y, elements, coeff, num_terms, alpha_l, alpha_t, beta):
     """
-    Reconstruct total = F * exp(beta*x) without ever forming F or exp(beta*x).
+    Work out total = F * exp(beta*x) without ever building F or exp(beta*x).
 
     Returns (total, cancellation_ratio).
 
-    The direct product is only representable while |beta*x| < ~709: past that
-    F has underflowed to 0 and exp(beta*x) has overflowed to inf, and 0*inf is
-    nan. Neither factor is individually meaningful there — their *product* is
-    perfectly well behaved, because log|Ke| ~ -beta*x cancels the advection
-    term almost exactly. Absorbing exp(beta*x) into the log-space sum before
-    exponentiating once keeps the whole computation inside float64 range at
-    any distance, which is what lifts the ~709/beta cap on domain size.
+    Computing the two factors separately only works while |beta*x| stays below
+    about 709. Past that point F has shrunk to 0 and exp(beta*x) has grown to
+    inf, and 0 * inf is nan. The product itself is still a perfectly ordinary
+    number out there. It is only the two halves that cannot be written down on
+    their own, because log|Ke| is close to -beta*x and the two nearly cancel.
 
-    The sum itself is a sign-aware logsumexp: the largest term is factored out
-    so every exponential argument is <= 0.
+    So the terms are summed as log magnitudes, beta*x is added in that same
+    log form, and the exponential is taken once at the very end. Every
+    intermediate value then stays inside float64 range no matter how far out x
+    is, which is what removes the old limit on how large a domain can be.
 
-    cancellation_ratio is max|term| / |sum| — how much of the result was eaten
-    by cancellation between terms. Around 1e1-1e2 is normal here (under two
-    decimal digits lost). A value near 1e10 or above means precision is being
-    destroyed and the answer should not be trusted.
+    The sum is a logsumexp that also keeps track of signs. The largest term is
+    taken out first, so every exponential actually evaluated has an argument of
+    zero or less and cannot overflow.
+
+    cancellation_ratio is max|term| divided by |sum|. It says how much of the
+    answer was lost to terms of opposite sign cancelling each other out.
+    Values of roughly 10 to 100 are normal and cost less than two decimal
+    digits. A value near 1e10 means nearly all the precision has gone and the
+    answer should not be trusted.
     """
     log_terms, sign_terms = _log_field_terms(
         x, y, elements, coeff, num_terms, alpha_l, alpha_t)
@@ -231,11 +241,19 @@ def _logspace_total(x, y, elements, coeff, num_terms, alpha_l, alpha_t, beta):
     log_total = log_max + math.log(abs(s)) + beta * x
     cancellation = 1.0 / abs(s)     # == max|term| / |sum|
 
+    # log_total is the log of the answer. The line below turns it back into an
+    # ordinary number with math.exp(), which raises OverflowError once its
+    # argument passes EXP_ARG_MAX. This check guards only that final
+    # conversion. It is not choosing between the plain product and log space,
+    # which the caller already decided before calling this function.
+    #
+    # It should never trigger for a sensible solution, because folding beta*x
+    # into the sum is exactly what keeps log_total bounded. If it does
+    # trigger, the concentration really is enormous, which means the solve
+    # went wrong. Capping the value instead of letting inf or nan escape stops
+    # one bad point from spreading nan over the whole grid and breaking the
+    # contour step that L_max depends on.
     if log_total > EXP_ARG_MAX:
-        # Last-resort guard, not the normal path. With the advection absorbed
-        # this is unreachable for a physical solution; saturating rather than
-        # returning inf keeps a stray point from seeding nan across the grid
-        # and breaking the contour extraction that L_max depends on.
         log_total = EXP_ARG_MAX
     return math.copysign(math.exp(log_total), s), cancellation
 
@@ -265,11 +283,11 @@ def _compute_point(args):
     orders_all = np.arange(num_terms)
     orders_odd = np.arange(1, num_terms) if num_terms > 1 else np.array([], dtype=int)
 
-    # Hybrid reconstruction: take the direct product while it is safely in
-    # range, and only fall back to the log-space path beyond that. This keeps
-    # results on ordinary domains bit-identical to the pre-log-space code and
-    # costs nothing there — _compute_point is 67-88% of runtime, so the extra
-    # log per term is worth avoiding when it buys nothing.
+    # Use the plain product while it is safely in range and only fall back to
+    # log space past that. Ordinary domains then give exactly the same numbers
+    # as before log space was added, and pay nothing for it.
+    # That matters because this function accounts for 67 to 88 percent of the runtime,
+    # so the extra logarithm per term is worth skipping when it gains nothing.
     arg = beta * x
     total = None
     if abs(arg) <= LOGSPACE_SWITCH:
@@ -298,7 +316,8 @@ def _compute_point(args):
 
         total = F * math.exp(arg)
         if not math.isfinite(total):
-            total = None    # 0*inf or inf*0 — redo the point in log space
+            # Came out as nan or inf, so redo this point in log space.
+            total = None
 
     if total is None:
         total, _ = _logspace_total(x, y, elements, coeff, num_terms,
@@ -600,8 +619,7 @@ class ATSimulation:
         os.makedirs(self.run_dir, exist_ok=True)
 
         # Export the concentration grid. This runs after the dynamic
-        # domain-extension loop above, so self.xaxis/yaxis/result are final —
-        # exporting earlier could write a domain that was later grown.
+        # domain-extension loop above, so self.xaxis/yaxis/result are final
         fmt = getattr(self.config, "concentration_output", "none")
         if fmt != "none":
             self.timer.start("export_grid")
@@ -755,10 +773,10 @@ class ATSimulation:
 
         Self-element blocks along the diagonal use eta=0 for line elements.
 
-        Returns (A, b, Dr, Dc). A and b are the raw, unscaled system — the
-        decoupled solver corrects b with unscaled field values before any
-        scaling is applied, so the scaling is deliberately kept as a separate
-        step rather than baked in here.
+        Returns (A, b, Dr, Dc). A and b are the plain, unscaled system. The
+        scaling is kept as a separate step instead of being applied here,
+        because the decoupled solver has to subtract unscaled field values from
+        b first.
         """
         group_elements = [elements[k] for k in group_indices]
         ng = len(group_elements)
@@ -774,22 +792,14 @@ class ATSimulation:
         A = np.zeros((total_rows, total_cols))
         b = np.zeros(total_rows)
 
-        # Equilibration factors (see _equilibrate). One per equation, keyed on
-        # the control point's x; one per unknown, keyed on the owning element's
-        # x. Both are measured from x0 purely to keep the exponentials in
-        # range: a common factor c in Dr and 1/c in Dc cancels out of the
-        # scaled system exactly, so the choice of x0 cannot change the answer,
-        # whereas exp(beta*x) on absolute x overflows for x beyond ~2839 m.
+
         elem_x = np.array([e.x for e in group_elements], dtype=float)
         x0 = float(np.mean(elem_x)) if ng else 0.0
         row_x = (np.concatenate([np.array([p[0] for p in e.outline], dtype=float)
                                  for e in group_elements])
                  if ng else np.zeros(0))
         col_x = np.repeat(elem_x, total_terms)
-        # Clipping only bites for elements more than ~709/beta apart, which are
-        # numerically non-interacting anyway. Any positive diagonal is a valid
-        # change of variable, so a clipped factor stays exact — it just weights
-        # those equations slightly differently than the uncapped value would.
+
         Dr = np.exp(np.clip(beta * (row_x - x0), -EXP_ARG_MAX, EXP_ARG_MAX))
         Dc = np.exp(np.clip(-beta * (col_x - x0), -EXP_ARG_MAX, EXP_ARG_MAX))
 
@@ -844,31 +854,26 @@ class ATSimulation:
     @staticmethod
     def _equilibrate(A, b, Dr, Dc):
         """
-        Apply the diagonal change of variable  A -> Dr A Dc,  b -> Dr b.
+        Scale the system as A -> Dr A Dc and b -> Dr b before solving it.
 
-        Solve the scaled system for x_hat, then recover x = Dc * x_hat. On a
-        square, consistent system this is exact — scaled and unscaled
-        solutions agree to ~1e-16. It changes the answer only because the real
-        system is overdetermined (200 equations, 26 unknowns), where the row
-        factors decide which equations the least-squares residual cares about.
+        Solve the scaled system for x_hat, then return x = Dc * x_hat.
 
-        Why it is needed: the boundary target is
-        b_i = (C*gamma + ca) * exp(-beta*x_cp_i), so b spans
-        exp(beta * element x-spread) orders of magnitude — 12 orders for two
-        sources only 110 m apart at alpha_l=2. lstsq minimises the *global*
-        sum of squared residuals, so the downstream element's rows contribute
-        ~1e-24 and its prescribed concentration is silently ignored (198%
-        boundary error in the repo's own default config). After scaling, both
-        elements' equations state their prescribed C at the same O(1) scale.
+        Each boundary point asks for b_i = (C*gamma + ca) * exp(-beta*x_i).
+        Sources at different x therefore ask for values that differ by many orders
+        of magnitude, 12 orders for two sources 110 m apart at alpha_l = 2.
+        lstsq minimises the total squared error over all rows at once, so the rows
+        belonging to the downstream source count for almost nothing and the concentration
+        it asked for is ignored. After scaling, every source states its requested
+        concentration at a similar size, so all of them count.
 
-        This is invisible to cond(A): the scale disparity lives in b, not in
-        A, which is why the ill-conditioning gate never caught it and why this
-        is a separate problem from decoupling.
+        The condition number never sees this, because the size difference is
+        in b and not in A.
 
-        Note the modelling decision it encodes: row scaling changes the
-        least-squares objective from "minimise absolute error" to "minimise
-        relative error per boundary condition". That is the right objective for
-        this physics, and it is why multi-element results can move at all.
+        If the system were square with an exact solution this would change
+        nothing: scaled and unscaled answers agree to about 1e-16. It changes
+        the result only because there are many more equations than unknowns
+        (200 equations for 26 unknowns), and then the row factors decide which
+        equations the solver tries hardest to satisfy.
         """
         return A * Dr[:, None] * Dc[None, :], b * Dr
 
@@ -1385,9 +1390,9 @@ class ATSimulation:
           - F * exp(beta*x) > ca:  donor regime, C = (F*exp(beta*x) - ca) / gamma
           - F * exp(beta*x) <= ca: acceptor regime, C = F*exp(beta*x) - ca
 
-        The direct/log-space switch also mirrors _compute_point. The two
-        routines have diverged before, so keep any change to one in step with
-        the other.
+        The switch between the plain product and log space matches
+        _compute_point. These two functions have drifted apart from each other
+        before, so keep any change to one in step with the other.
         """
         n = self.config.num_terms
         alpha_l = self.config.alpha_l
@@ -1436,16 +1441,17 @@ class ATSimulation:
 
     def cancellation_ratio(self, x, y):
         """
-        Return max|term| / |sum| for the field reconstruction at (x, y).
+        Return max|term| divided by |sum| for the field at (x, y).
 
-        A precision diagnostic for the log-space path, not part of the normal
-        pipeline. Absorbing exp(beta*x) into the sum fixes the *range* problem
-        but says nothing about cancellation between terms of opposite sign,
-        so this is the number to check when a far-field result looks wrong.
+        This is a precision check for the log-space path. The normal pipeline
+        does not use it. Folding exp(beta*x) into the sum fixes values that are
+        too large or too small to store, but it does nothing about terms of
+        opposite sign cancelling each other, so this is the number to look at
+        when a result far from the source looks wrong.
 
-        Expect ~1e1-1e2 (0.6-1.9 decimal digits lost) even far out. If it
-        climbs toward 1e10 the answer is being eaten by cancellation and
-        logsumexp will not save it — that needs a different fix.
+        Expect roughly 10 to 100 even far out, which costs under two decimal
+        digits. If it climbs towards 1e10 then cancellation has eaten the
+        answer, and logsumexp cannot help with that. It needs a different fix.
         """
         _, ratio = _logspace_total(
             x, y, self.config.elements, self.coeff, self.config.num_terms,
@@ -1649,13 +1655,14 @@ class ATSimulation:
                 min_row_overall = min(min_row_overall, float(np.min(v[:, 1])))
 
             if chosen is not None and len(chosen) > 1:
-                # contour() returns column indices in v[:, 0]; column 0 maps to
-                # dom_xmin, so the origin has to be added back to turn an index
-                # into an x-coordinate — the same conversion z_min_reached does
-                # below. Without the offset L_max is a distance from the left
-                # edge rather than an x, which every consumer already assumes
-                # it is not: run() and check_domain_adequacy both compute
-                # `L_max - dom_xmin`, so a missing origin gets double-counted.
+                # contour() gives back column indices in v[:, 0], and column 0
+                # sits at dom_xmin, so dom_xmin has to be added on to turn an
+                # index into an x coordinate. z_min_reached below does the same
+                # thing for y. Without it, L_max would be a distance from the
+                # left edge rather than an x position, which is not what the
+                # rest of the code expects. run() and check_domain_adequacy
+                # both compute L_max - dom_xmin, so the missing offset would
+                # end up being counted twice.
                 self.L_max = int(self.config.dom_xmin
                                  + max_x_overall * self.config.dom_inc)
                 diffs = np.diff(chosen, axis=0)
@@ -2290,6 +2297,19 @@ class ATSimulation:
 
         ax.xaxis.set_major_locator(MaxNLocator(nbins=7))
         ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+
+        # Vertical runs are bounded above by the water table at z=0, so the
+        # plot must end there and must show the 0 tick. Without this the view
+        # follows the data instead, and the data rarely reaches 0: conc_array
+        # builds the axis as arange(ymin, ymax+inc, inc), so unless dom_ymin
+        # happens to be a whole multiple of dom_inc below 0, the top row lands
+        # short (e.g. ymin=-16.875, inc=0.5 -> top row -0.375). The locator
+        # still emits a 0 tick, but matplotlib hides it as out-of-view, which
+        # is why the topmost label read -4. Pinning the limit also guarantees
+        # nothing above the water table is ever drawn.
+        if self.config.orientation == "vertical":
+            ax.set_ylim(ymin, 0.0)
+
         ax.set_xlabel("$x$ (m)")
         ax.set_ylabel("$z$ (m)" if self.config.orientation == "vertical" else "$y$ (m)")
 

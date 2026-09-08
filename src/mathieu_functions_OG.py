@@ -407,18 +407,18 @@ class Mathieu(object):
         return np.squeeze(y)
 
     def _Ke_parts(self,n,z):
-        """Factored form of Ke: returns (core, offset) with
+        """Ke split into two pieces, so that Ke(n,z) = core * exp(offset).
 
-               Ke(n,z) = core * exp(offset)
+        core is built from ive() and kve(), which are the scaled versions of
+        the Bessel functions, so core stays close to 1 across the whole useful
+        range of z. Everything that makes Ke enormous or tiny sits in the
+        single number offset.
 
-        `core` is built from the *exponentially scaled* Bessel functions
-        ive()/kve(), so it stays O(1) over the whole useful range of z; the
-        entire dynamic range of Ke lives in the scalar `offset` exponent.
-        Ke() below simply multiplies the two back together, while log_Ke()
-        keeps them apart so the magnitude can be carried in log space and
-        never has to fit in a float64.
+        Ke() below just multiplies the two back together. log_Ke() keeps them
+        apart, so the size can be carried as a logarithm and never has to fit
+        inside a float64.
 
-        Shapes: core is (n, z), offset is (z,).
+        core has shape (n, z) and offset has shape (z,).
         """
         from scipy.special import kve,ive
         n,z,sqrtq,v1,v2,M,EV,OD = self._RadFuncSetup(n,z)
@@ -450,18 +450,20 @@ class Mathieu(object):
         return np.squeeze(y)
 
     def log_Ke(self,n,z):
-        """log-magnitude form of Ke: returns (log|Ke|, sign(Ke)).
+        """Ke written as a log magnitude: returns (log|Ke|, sign of Ke).
 
-        Same value as Ke(), split so that it survives arguments where Ke()
-        itself underflows to 0.0. The offset exponent is added rather than
-        exponentiated, so the result stays finite for any z.
+        This is the same value Ke() gives, just written differently so that it
+        still works where Ke() itself shrinks all the way to 0.0. The offset is
+        added on instead of being fed to exp(), so the result stays an ordinary
+        number for any z.
 
-        Only the real part is carried, which is what every caller of Ke() in
-        this project uses. That is exact for real-positive q (here
-        q = d^2*beta^2/4, always real-positive); for genuinely complex q the
-        discarded phase would matter and this routine must not be used.
+        Only the real part is kept, which is all that any caller of Ke() in
+        this project uses. That is exact when q is real and positive. Here q is
+        always d^2 * beta^2 / 4, which is real and positive. Do not use this
+        function if q is ever made complex, because the phase it drops would
+        then matter.
 
-        Where Ke() works, exp(log|Ke|) * sign reproduces it bit-for-bit.
+        Wherever Ke() still works, sign * exp(log|Ke|) reproduces it exactly.
         """
         core, offset = self._Ke_parts(n,z)
         c = core.real
@@ -470,15 +472,13 @@ class Mathieu(object):
         return np.squeeze(log_mag), np.squeeze(np.sign(c))
 
     def _Ko_parts(self,n,z):
-        """Factored form of Ko: returns (core, offset) with
+        """Ko split into two pieces, so that Ko(n,z) = core * exp(offset).
 
-               Ko(n,z) = core * exp(offset)
+        See _Ke_parts for why the exponent is kept separate. The rule that Ko
+        of order 0 is nan is not applied here. Ko() and log_Ko() each apply it
+        to their own result instead.
 
-        See _Ke_parts for why the exponent is kept separate. The Ko_0 = nan
-        convention is *not* applied here; Ko() and log_Ko() each apply it to
-        their own return value.
-
-        Shapes: core is (n, z), offset is (z,).
+        core has shape (n, z) and offset has shape (z,).
         """
         from scipy.special import kve,ive
         n,z,sqrtq,v1,v2,M,EV,OD = self._RadFuncSetup(n,z)
@@ -514,11 +514,11 @@ class Mathieu(object):
         return np.squeeze(y)
 
     def log_Ko(self,n,z):
-        """log-magnitude form of Ko: returns (log|Ko|, sign(Ko)).
+        """Ko written as a log magnitude: returns (log|Ko|, sign of Ko).
 
-        The log-space counterpart of Ko(), exactly as log_Ke() is to Ke() —
-        see that docstring for the real-q caveat. Order 0 is nan in both the
-        magnitude and the sign, matching Ko()'s own convention.
+        This is to Ko() what log_Ke() is to Ke(). See log_Ke for the note about
+        q needing to be real and positive. Order 0 is nan in both the magnitude
+        and the sign, which matches what Ko() itself returns.
         """
         n = np.atleast_1d(n)
         core, offset = self._Ko_parts(n,z)

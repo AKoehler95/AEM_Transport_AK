@@ -1,17 +1,17 @@
 {
-    "alpha_l": 1.0,
-    "alpha_t": 0.05,
+    "alpha_l": 2.0,
+    "alpha_t": 0.005,
     "ca": 8.0,
     "gamma": 3.5,
 
     "dom_xmin": 0.0,
-    "dom_xmax": 100.0,
-    "dom_ymin": -5.0,
+    "dom_xmax": 7000.0,
+    "dom_ymin": -20.0,
     "dom_ymax": 0.0,
     "dom_inc": 0.5,
 
-    "num_cp": 100,
-    "num_terms": 7,
+    "num_cp": 40,
+    "num_terms": 5,
 
     "orientation": "vertical",
     "plot_aspect": "",
@@ -29,11 +29,12 @@
 
     "elements": [
         {
-            "kind": "circle",
+            "kind": "line",
             "x": 10,
-            "y": -5,
-            "c": 10,
-            "r": 1,
+            "y": -0.55,
+            "c": 1500,
+            "l": 5.0,
+            "theta": 0,
             "id": "donor"
         }
     ]

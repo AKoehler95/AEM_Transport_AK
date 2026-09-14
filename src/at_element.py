@@ -4,6 +4,7 @@
 # Python std library:
 import math
 import cmath
+import logging
 from enum import Enum
 
 # External library:
@@ -12,6 +13,13 @@ import numpy as np
 # Local imports:
 from mathieu_functions_OG import Mathieu
 #from mathieu_functions_pygsl import Mathieu
+
+logger = logging.getLogger(__name__)
+
+# Mathieu parameter limits, set from measured ODE-residual accuracy of the
+# Mathieu routines: clean to q~60, degrading through q~150, unusable past q~200.
+Q_WARN = 100.0
+Q_MAX_USABLE = 200.0
 
 class ATElementType(Enum):
     """
@@ -44,7 +52,7 @@ class ATElement:
         self.id: str = ""
         self.index: int | None = None   # designer metadata; solver ignores it
 
-    def calc_d_q(self, alpha_t: float, alpha_l: float, beta: float):
+    def calc_d_q(self, alpha_t: float, alpha_l: float, beta: float, num_terms: int = 12):
         a = float(self.r)
         s = math.sqrt(alpha_l / alpha_t)
         eps = 1e-15
@@ -97,7 +105,29 @@ class ATElement:
             raise ValueError(f"Unknown element type: {self.kind}")
 
         self.q = (self.d ** 2 * beta ** 2) / 4.0
-        self.m = Mathieu(self.q)
+
+        # The Mathieu routines lose accuracy as q grows: the angular functions
+        # stop satisfying the Mathieu ODE (relative residual ~3e-4 at q=224,
+        # ~1 at q=977) and enlarging M does not recover it, so a large element
+        # would otherwise return a plausible-looking but meaningless field.
+        abs_q = abs(self.q)
+        if abs_q > Q_MAX_USABLE:
+            raise ValueError(
+                f"Element '{self.id or self.label or self.kind}' has Mathieu "
+                f"q={abs_q:.1f}, beyond the range the Mathieu routines can "
+                f"resolve (limit {Q_MAX_USABLE:g}); the solution would be "
+                f"silently wrong. q grows with (element size x "
+                f"sqrt(alpha_l/alpha_t) x beta)^2 - shrink the element, split "
+                f"it into smaller ones, or raise alpha_t.")
+        if abs_q > Q_WARN:
+            logger.warning(
+                "Element '%s' has Mathieu q=%.1f (>%g): basis-function "
+                "accuracy is degraded and boundary values may be off.",
+                self.id or self.label or self.kind, abs_q, Q_WARN)
+
+        buffer_est = max(10, int(math.ceil(math.sqrt(abs_q))) + 10)
+        M = max(20, num_terms + buffer_est)
+        self.m = Mathieu(self.q, M=M)
 
     def set_outline(self, num_cp: int):
         if self.kind == ATElementType.Circle:

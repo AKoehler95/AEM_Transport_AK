@@ -186,10 +186,10 @@ class Mathieu(object):
         try:
             buff
         except NameError:
-            error = ("infinite matrix size too small for given " +
-            "q=(%.1f,%.1f), cannot meet cutoff (%.1e) with matrix size (%i)" %
-                     (q.real,q.imag,cutoff,self.M))
-            raise self.MathieuError #,error
+            error = (f"infinite matrix size too small for given "
+                     f"q=({q.real:.1f},{q.imag:.1f}), cannot meet cutoff ({cutoff:.1e}) "
+                     f"with matrix size ({self.M})")
+            raise self.MathieuError(error)
         else:
             self.buffer = buff
 
@@ -204,11 +204,10 @@ class Mathieu(object):
 
     def _error_check(self,n):
         if np.max(n)+self.buffer > self.M:
-            err = ("max Mathieu function order (%i) too high," +
-                   "increase 'inf' matrix size M=%i," +
-                   "given q=(%.1f,%.1fj) and buffer=%i" %
-                   (np.max(n),self.M,self.q.real,self.q.imag,self.buffer))
-            raise self.MathieuError #, err
+            err = (f"max Mathieu function order ({np.max(n)}) too high, "
+                   f"increase 'inf' matrix size M={self.M}, "
+                   f"given q=({self.q.real:.1f},{self.q.imag:.1f}j) and buffer={self.buffer}")
+            raise self.MathieuError(err)
 
     def _AngFuncSetup(self,n,z):
         self._error_check(n)

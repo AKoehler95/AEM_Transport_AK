@@ -102,6 +102,10 @@ CONSTRAINTS = [
 # the vertical boundary, so the solve sees ~2x). Keeps every config solvable.
 MAX_ELEMENTS_PER_CONFIG = 250
 
+# A cluster should read as a cluster, so radii whose area would eat more than
+# 1/this of the cluster's budget are dropped from its pool.
+MIN_CIRCLES_PER_CLUSTER = 5
+
 # END USER CONFIG
 
 # LHS cannot resample a single rejected row without breaking its stratification,
@@ -259,7 +263,7 @@ def realise_factors(row):
     return factors
 
 
-# Packing: fill cluster bands with mixed-size circles
+# Packing: grow blob-shaped clusters of mixed-size circles
 
 def _cluster_targets(ls_list, packing, ws, y_span):
     """Split the total covered-area budget (packing*WS*y_span) across clusters
@@ -271,17 +275,75 @@ def _cluster_targets(ls_list, packing, ws, y_span):
     return [budget * ls / total_ls for ls in ls_list]
 
 
-def _pack_region_mixed(y_lo, y_hi, ws, rpool, cd, target_area, tag, start_idx,
-                       clearance=1.02):
-    """Fill the band [0, WS] x [y_lo, y_hi] with circles, largest first, until
-    the covered area reaches target_area. Circles stay inside [r, WS-r] (the WS
-    constraint) and never overlap. Returns (elements, covered_area)."""
+def _blob_axes(ls, ws, target_area, r_min, r_max, fill_eff):
+    """Semi-axes (a, b) of the ellipse that holds target_area at fill_eff
+    coverage.
+
+    b is never allowed below the radius of an equivalent circular blob, so a
+    thin cluster slot cannot squash the blob into a single row of circles;
+    where ls is genuinely tall, b follows ls and the blob comes out narrow and
+    elongated instead. a is capped so the blob fits inside [0, WS].
+    """
+    if target_area <= 0:
+        r = max(r_min, min(r_max, ws / 2.0))
+        return r, max(ls / 2.0, r)
+    r_circ = math.sqrt(target_area / (math.pi * fill_eff))
+    b = max(ls / 2.0, r_circ)
+    a = target_area / (math.pi * b * fill_eff)
+    return max(r_min, min(a, ws / 2.0)), b
+
+
+def _pack_blob(cx, cy, ls, ws, rpool, cd, target_area, tag, start_idx,
+               clearance=1.02, fill_eff=0.65, existing=None):
+    """Grow a blob of circles outward from (cx, cy) until the covered area
+    reaches target_area.
+
+    The blob is an ellipse with half-height ls/2; its half-width is sized to
+    hold target_area (see _blob_half_width), so low packing fractions give
+    narrow, locally clustered blobs rather than full-width layers.
+
+    Candidate centres sit on a hex lattice and are consumed in order of
+    distance from the centre, so the blob fills from the middle outward. Each
+    position draws a random radius and falls back to smaller ones if that does
+    not fit, which lets big circles set the structure and small ones fill the
+    gaps. Centres stay inside [r, WS-r] (the WS constraint) and never overlap.
+
+    cx=None draws a random horizontal centre that keeps the blob in the zone.
+    `existing` is the circles already placed by earlier clusters; they are
+    treated as obstacles so clusters cannot overlap each other.
+
+    Returns (elements, covered_area).
+    """
     radii = sorted(set(rpool), reverse=True)
-    if not radii:
+    if not radii or ls <= 0:
         return [], 0.0
 
-    cell = 2.0 * radii[0]
+    # Drop radii too big for this cluster's area budget: a single circle of
+    # radius r covers pi*r^2, so anything above the cap would spend the whole
+    # budget at once and leave a "cluster" of one or two circles. The smallest
+    # radius is always kept so the pool can never empty.
+    if target_area > 0 and len(radii) > 1:
+        r_cap = math.sqrt(target_area / (math.pi * MIN_CIRCLES_PER_CLUSTER))
+        eligible = [r for r in radii if r <= r_cap]
+        # Keep at least the two smallest so a cluster always has a size mix.
+        radii = eligible if len(eligible) >= 2 else radii[-2:]
+    r_max, r_min = radii[0], radii[-1]
+
+    a, b = _blob_axes(ls, ws, target_area, r_min, r_max, fill_eff)
+
+    if cx is None:
+        lo, hi = a, ws - a
+        cx = random.uniform(lo, hi) if hi > lo else ws / 2.0
+    cx = min(max(cx, a), max(a, ws - a))
+
+    cell = 2.0 * max(r_max, max((e["r"] for e in (existing or ())), default=0.0))
     grid = {}
+
+    def remember(x, y, r):
+        grid.setdefault((int(x / cell), int(y / cell)), []).append((x, y, r))
+
+    for e in (existing or ()):
+        remember(e["x"], e["y"], e["r"])
 
     def overlaps(x, y, r):
         gx, gy = int(x / cell), int(y / cell)
@@ -292,44 +354,60 @@ def _pack_region_mixed(y_lo, y_hi, ws, rpool, cd, target_area, tag, start_idx,
                         return True
         return False
 
+    pitch = 2.0 * r_min * clearance
+    row_pitch = pitch * math.sqrt(3) / 2.0
+    n_rows = int(math.ceil(b / row_pitch)) + 1
+    n_cols = int(math.ceil(a / pitch)) + 2
+
+    candidates = []
+    for ri in range(-n_rows, n_rows + 1):
+        y = cy + ri * row_pitch
+        x_off = (pitch / 2.0) if ri % 2 else 0.0
+        for ci in range(-n_cols, n_cols + 1):
+            x = cx + ci * pitch + x_off
+            d = math.hypot((x - cx) / a, (y - cy) / b)
+            if d <= 1.0:
+                candidates.append((d, x, y))
+    candidates.sort()
+
     elements = []
     covered = 0.0
-    for r in radii:
+    for _, x, y in candidates:
         if target_area > 0 and covered >= target_area:
             break
-        step = 2.0 * r * clearance
-        row = 0
-        y = y_lo + r
-        while y <= y_hi - r + 1e-12:
-            x = r + (r if row % 2 else 0.0)
-            while x <= ws - r + 1e-12:
-                if target_area > 0 and covered >= target_area:
-                    break
-                if not overlaps(x, y, r):
-                    grid.setdefault((int(x / cell), int(y / cell)), []).append((x, y, r))
-                    elements.append({
-                        "kind": "circle",
-                        "x": round(x, 5),
-                        "y": round(y, 5),
-                        "r": round(r, 5),
-                        "c": round(cd, 2),
-                        "id": f"{tag}_{start_idx + len(elements)}",
-                    })
-                    covered += math.pi * r * r
-                x += step
-            y += step * math.sqrt(3) / 2.0
-            row += 1
+        r_first = random.choice(radii)
+        for r in [r_first] + [rr for rr in radii if rr < r_first]:
+            if x < r or x > ws - r:
+                continue
+            if overlaps(x, y, r):
+                continue
+            remember(x, y, r)
+            elements.append({
+                "kind": "circle",
+                "x": round(x, 5),
+                "y": round(y, 5),
+                "r": round(r, 5),
+                "c": round(cd, 2),
+                "id": f"{tag}_{start_idx + len(elements)}",
+            })
+            covered += math.pi * r * r
+            break
     return elements, covered
 
 
-def make_cluster(cy, ls, rpool, cd, target_area, ws, tag, start_idx=0):
-    """Fill a full-width band of height ls centred on cy. Returns (elements,
-    covered_area)."""
-    return _pack_region_mixed(cy - ls / 2.0, cy + ls / 2.0, ws, rpool, cd,
-                              target_area, tag, start_idx)
+def make_cluster(cy, ls, rpool, cd, target_area, ws, tag, start_idx=0, cx=None,
+                 existing=None):
+    """Build one blob-shaped cluster of height ls centred vertically on cy.
+
+    cx defaults to a random horizontal centre, so each cluster lands in its own
+    place across the source zone instead of spanning it end to end.
+    """
+    return _pack_blob(cx, cy, ls, ws, rpool, cd, target_area, tag, start_idx,
+                      existing=existing)
 
 
-# Archetypes: place cluster bands vertically in a characteristic pattern
+# Archetypes: place clusters vertically in a characteristic pattern
+# (each cluster's horizontal centre is drawn at random by make_cluster)
 
 class _Accumulator:
     """Collects elements across an archetype's clusters."""
@@ -346,6 +424,13 @@ class _Accumulator:
     @property
     def start(self):
         return len(self.elements)
+
+    def place(self, cy, ls, rpool, cd, target_area, ws, tag, cx=None):
+        """Add one cluster, passing the already-placed circles through as
+        obstacles so clusters cannot overlap one another."""
+        self.add(make_cluster(cy, ls, rpool, cd, target_area, ws, tag,
+                              start_idx=self.start, cx=cx,
+                              existing=self.elements))
 
     def result(self):
         return self.elements, self.covered
@@ -372,8 +457,7 @@ def _stack(ls_list, gaps, targets, ws, rpool, cd, tag_prefix, cfg_id):
     y = (sum(ls_list) + sum(gaps)) / 2.0
     for k in range(len(ls_list)):
         cy = y - ls_list[k] / 2.0
-        acc.add(make_cluster(cy, ls_list[k], rpool, cd, targets[k], ws,
-                             f"{tag_prefix}{k}_{cfg_id}", start_idx=acc.start))
+        acc.place(cy, ls_list[k], rpool, cd, targets[k], ws, f"{tag_prefix}{k}_{cfg_id}")
         y -= ls_list[k] + (gaps[k] if k < len(ls_list) - 1 else 0.0)
     return acc.result()
 
@@ -398,8 +482,7 @@ def archetype_top_heavy(cfg_id, n_clusters, f):
     y = half
     for k in range(n_clusters):
         cy = y - ls_list[k] / 2.0
-        acc.add(make_cluster(cy, ls_list[k], f["_rpool"], f["cd"], targets[k], ws,
-                             f"th{k}_{cfg_id}", start_idx=acc.start))
+        acc.place(cy, ls_list[k], f["_rpool"], f["cd"], targets[k], ws, f"th{k}_{cfg_id}")
         y -= ls_list[k] + (gaps[k] if k < n_clusters - 1 else 0.0)
     return acc.result()
 
@@ -433,8 +516,7 @@ def archetype_scattered(cfg_id, n_clusters, f):
     targets = _cluster_targets(ls_list, f["packing"], ws, span)
     acc = _Accumulator()
     for k, cy in enumerate(cy_list):
-        acc.add(make_cluster(cy, ls_list[k], f["_rpool"], f["cd"], targets[k], ws,
-                             f"sc{k}_{cfg_id}", start_idx=acc.start))
+        acc.place(cy, ls_list[k], f["_rpool"], f["cd"], targets[k], ws, f"sc{k}_{cfg_id}")
     return acc.result()
 
 
@@ -459,8 +541,7 @@ def archetype_two_groups(cfg_id, n_clusters, f):
         y = y_top
         for k in range(n):
             cy = y - ls_each / 2.0
-            acc.add(make_cluster(cy, ls_each, f["_rpool"], f["cd"], targets[idx[0]],
-                                 ws, f"{prefix}{k}_{cfg_id}", start_idx=acc.start))
+            acc.place(cy, ls_each, f["_rpool"], f["cd"], targets[idx[0]], ws, f"{prefix}{k}_{cfg_id}")
             idx[0] += 1
             y -= ls_each + (tiny[k] if k < n - 1 else 0.0)
 
@@ -484,12 +565,10 @@ def archetype_outlier(cfg_id, n_clusters, f):
     y = main_span / 2.0
     for k in range(n_main):
         cy = y - ls_each / 2.0
-        acc.add(make_cluster(cy, ls_each, f["_rpool"], f["cd"], targets[k], ws,
-                             f"om{k}_{cfg_id}", start_idx=acc.start))
+        acc.place(cy, ls_each, f["_rpool"], f["cd"], targets[k], ws, f"om{k}_{cfg_id}")
         y -= ls_each + random.uniform(0.05, 0.2 * ws)
     cy_out = -main_span / 2.0 - outlier_gap
-    acc.add(make_cluster(cy_out, outlier_ls, f["_rpool"], f["cd"], targets[-1], ws,
-                         f"oo_{cfg_id}", start_idx=acc.start))
+    acc.place(cy_out, outlier_ls, f["_rpool"], f["cd"], targets[-1], ws, f"oo_{cfg_id}")
     return acc.result()
 
 
@@ -509,8 +588,7 @@ def archetype_dense_centre(cfg_id, n_clusters, f):
     targets = _cluster_targets(ls_list, f["packing"], ws, span)
     acc = _Accumulator()
     for k, cy in enumerate(positions):
-        acc.add(make_cluster(cy, ls_list[k], f["_rpool"], f["cd"], targets[k], ws,
-                             f"dc{k}_{cfg_id}", start_idx=acc.start))
+        acc.place(cy, ls_list[k], f["_rpool"], f["cd"], targets[k], ws, f"dc{k}_{cfg_id}")
     return acc.result()
 
 

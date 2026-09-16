@@ -31,9 +31,9 @@ import numpy as np
 
 #USER CONFIG
 
-N_CONFIGS   = 10
-OUTPUT_DIR  = "mc_batch_005"
-RANDOM_SEED = 21994              # int for reproducibility, or None
+N_CONFIGS   = 200
+OUTPUT_DIR  = "mc_batch_008"
+RANDOM_SEED = 31051994              # int for reproducibility, or None
 ORIENTATION = "vertical"        # "horizontal" | "vertical"
 
 # How random samples are spread over the factor ranges:
@@ -67,12 +67,12 @@ class D:
 # is sampled. Constants and derived factors are excluded from the design matrix.
 FACTORS = {
     # Geometry
-    "ws":          5.0,                       # source width [m]
-    "y_span":      (1.0, 5.0),               # source height [m]
+    "ws":          10.0,                       # source width [m]
+    "y_span":      (1.0, 3.0),               # source height [m]
     "packing":     (0.10, 0.80),              # fraction of WS*y_span covered by circles
     "n_clusters":  {"choice": [2, 3, 4, 5], "weights": [1, 2, 3, 2]},
-    "archetype":   {"choice": list("ACDEFHIJ")},    # spatial pattern; see ARCHETYPES
-    "radius_pool": {"choice": ["FINE", "MED", "COARSE", "BROAD"]},
+    "archetype":   {"choice": list("CEFH")},    # spatial pattern; see ARCHETYPES "ACDEFHIJ"
+    "radius_pool": {"choice": ["FINE", "MED", "COARSE"]}, #, "BROAD"
 
     # Transport
     "alpha_l":     (0.5, 2.0),                # longitudinal dispersivity
@@ -89,7 +89,7 @@ FACTORS = {
     # Numerics
     "num_cp":      50,
     "num_terms":   15,                         # keep at 5; dense sources are unstable higher
-    "dom_inc":     2.0,
+    "dom_inc":     5.0,
 }
 
 # A config is rejected and resampled if any constraint returns False.

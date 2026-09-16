@@ -50,8 +50,8 @@ matplotlib.use('Agg')
 #                    instead of each config's built-in guess.
 #   LEARN          : True to append each clean run to the xmax dataset and
 #                    refit the model afterwards.
-CONFIG_DIR    = "mc_batch_005"
-USE_PREDICTOR = False
+CONFIG_DIR    = "mc_batch_008"
+USE_PREDICTOR = True
 LEARN         = True
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 # a bare name like "batch_configs" works regardless of the IDE's working dir.
 if not os.path.isabs(CONFIG_DIR):
     CONFIG_DIR = os.path.join(SCRIPT_DIR, CONFIG_DIR)   # overridden in main() from argv
-RESULTS_DIR = os.path.join(SCRIPT_DIR, "batch_results/Batch_005")
+RESULTS_DIR = os.path.join(SCRIPT_DIR, "batch_results/Batch_008")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Dataset path for the learned dom_xmax predictor (xmax_features.py /

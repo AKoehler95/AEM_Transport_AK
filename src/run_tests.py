@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
+#Code written by Alvin Yadav
 """
 AEM Solver Test Runner
-======================
+
 Batch-runs every JSON configuration in a directory through the AEM
 simulation pipeline and collects the outputs into summary files.
 

@@ -561,8 +561,11 @@ class ATSimulation:
 
         # Extend the domain iteratively until the plume fits, or until
         # MAX_EXTENSIONS is reached. Each round grows dom_xmax (horizontal
-        # capping at the tip) and/or dom_ymin (vertical capping from below) by
-        # ~50% and triggers a fresh grid computation. dom_ymax is never grown:
+        # capping at the tip) and/or dom_ymin (vertical capping from below)
+        # and triggers a fresh grid computation. The x step is graduated: a tip
+        # sitting on the boundary grows by ~50%, one merely near it by ~10%, so
+        # an ambiguous case is probed cheaply instead of jumping straight to a
+        # much larger grid. dom_ymax is never grown:
         # in vertical orientation it is pinned at the water table (y=0) by the
         # mirror-image construction, so extending it would pull image elements
         # into the domain.
@@ -593,7 +596,18 @@ class ATSimulation:
                 break  # plume fits in both directions
 
             if x_capped:
-                new_xmax = self.L_max + 0.5 * max(self.L_max, domain_width)
+                # How hard the tip presses against the edge sets the step. A tip
+                # on dom_xmax is certainly running off, so jump ahead; one merely
+                # near it may already be the true L_max, so probe with a small
+                # step and re-measure. If that probe comes back capped it takes
+                # the generous branch next round, so nothing is lost.
+                if max_x_dist >= 0.995 * domain_width:
+                    grow = 0.5 * max(self.L_max, domain_width)
+                else:
+                    grow = 0.10 * domain_width
+                # Guarantee progress even when L_max sits well inside dom_xmax.
+                new_xmax = max(self.L_max + grow,
+                               self.config.dom_xmax + 0.05 * domain_width)
                 print(f"Dynamic domain extension #{ext_round+1}: "
                       f"dom_xmax {self.config.dom_xmax:.0f} -> {new_xmax:.0f} m  "
                       f"(L_max={self.L_max})")
@@ -686,7 +700,7 @@ class ATSimulation:
         return -math.sqrt(q) * math.exp(eta) / math.log(10.0)
 
     def _are_elements_coupled(self, e_i, e_j, alpha_l, alpha_t,
-                              log10_floor=-14.0):
+                              log10_floor=-300.0):
         """
         Test whether two elements are close enough that cross-terms between
         them are numerically significant.
@@ -696,6 +710,11 @@ class ATSimulation:
         10^log10_floor. The q-dependent criterion matters because Ke's
         decay rate is sqrt(q)-dependent: for small q, Ke stays significant
         out to larger eta than for large q.
+
+        The floor sits just above float64's underflow cliff (2.2e-308). The
+        coupled solve is exact down to |Ke| ~ 1e-304 and only breaks once the
+        cross-term underflows to zero in the matrix, so every representable
+        interaction is worth keeping coupled.
         """
         if e_i is e_j:
             return True
@@ -715,13 +734,16 @@ class ATSimulation:
 
     def _find_coupling_groups(self, elements, alpha_l, alpha_t):
         """
-        Partition elements into connected components of "coupled" elements
-        using a union-find algorithm.
+        Partition elements into groups that can be solved together.
 
-        Two elements are coupled if _are_elements_coupled returns True.
-        Elements within the same group must be solved together; elements
-        in different groups can be solved independently. Returns a list
-        of groups, each a list of element indices.
+        Union-find over _are_elements_coupled gives connected components, but
+        that relation is transitive while the float64 limit is pairwise: a
+        chain of elements each coupled to its neighbour can span far enough
+        that the two ends underflow to zero in the matrix. Each component is
+        therefore split again, left to right, so that every element stays
+        coupled to the first element of its own group.
+
+        Returns a list of groups, each a list of element indices.
         """
         ne = len(elements)
         parent = list(range(ne))
@@ -739,10 +761,24 @@ class ATSimulation:
                 if self._are_elements_coupled(elements[i], elements[j],
                                               alpha_l, alpha_t):
                     union(i, j)
-        groups = {}
+        components = {}
         for i in range(ne):
-            groups.setdefault(find(i), []).append(i)
-        return list(groups.values())
+            components.setdefault(find(i), []).append(i)
+
+        groups = []
+        for comp in components.values():
+            if len(comp) < 2:
+                groups.append(comp)
+                continue
+            chunk = []
+            for idx in sorted(comp, key=lambda k: elements[k].x):
+                if chunk and not self._are_elements_coupled(
+                        elements[chunk[0]], elements[idx], alpha_l, alpha_t):
+                    groups.append(chunk)
+                    chunk = []
+                chunk.append(idx)
+            groups.append(chunk)
+        return groups
 
     # Matrix building (vectorized Mathieu)
 
@@ -976,74 +1012,7 @@ class ATSimulation:
             cond = sv[0] / sv[-1] if sv[-1] > 0 else np.inf
         return coeffs, cond
 
-    def _evaluate_group_field(self, group_indices, elements, coeff, n,
-                              x, y, alpha_l, alpha_t):
-        """
-        Evaluate the F-field contribution from a specific subset of elements
-        at a given (x, y) point.
-
-        Used during decoupled iterative solving to compute the "known"
-        cross-group contributions that must be subtracted from each group's
-        RHS. Sums Mathieu basis functions only from elements in group_indices,
-        not the full element list.
-        """
-        total_terms = 2 * n - 1
-        orders_all = np.arange(n)
-        orders_odd = np.arange(1, n) if n > 1 else np.array([], dtype=int)
-
-        F = 0.0
-        for idx in group_indices:
-            elem = elements[idx]
-            dx = x - elem.x
-            dy = y - elem.y
-            eta, psi = elem.uv(dx, dy, alpha_l, alpha_t)
-            block = coeff[idx * total_terms: (idx + 1) * total_terms]
-
-            ce_vals = elem.m.ce(orders_all, psi).real
-            Ke_vals = elem.m.Ke(orders_all, eta).real
-            Fi = block[0] * ce_vals[0] * Ke_vals[0]
-
-            if n > 1:
-                se_vals = elem.m.se(orders_odd, psi).real
-                Ko_vals = elem.m.Ko(orders_odd, eta).real
-                for j in range(1, n):
-                    Fi += block[2*j-1] * se_vals[j-1] * Ko_vals[j-1]
-                    Fi += block[2*j]   * ce_vals[j]   * Ke_vals[j]
-            F += Fi
-        return F
-
     # Solve strategies
-
-    def _solve_coupled(self, elements, n, total_terms, alpha_l, alpha_t,
-                       beta, ca, gamma):
-        """
-        Solve the full coupled system with all elements in one matrix.
-
-        This is the simplest and typically most accurate approach when the
-        matrix is well-conditioned. All element-element cross-terms are
-        present, so there's no information loss. Used when the condition
-        number of the assembled matrix is below the threshold in solve_system.
-        """
-        all_indices = list(range(len(elements)))
-        A, b, Dr, Dc, b_eq_direct, log_Dc, Dc_out = self._build_group_system(
-            all_indices, elements, alpha_l, alpha_t, beta, ca, gamma, n)
-        A_eq, b_eq = self._equilibrate(A, b, Dr, Dc, b_eq_direct)
-        coeffs_hat, _ = self._solve_scaled_lstsq(A_eq, b_eq)
-        coeffs = Dc_out * coeffs_hat    # undo the change of variable
-        ne = len(elements)
-        coeff = np.zeros(ne * total_terms)
-        log_coeff = np.full(ne * total_terms, -np.inf)
-        sign_coeff = np.zeros(ne * total_terms)
-        for li, gi in enumerate(all_indices):
-            s = li * total_terms
-            gs = gi * total_terms
-            coeff[gs:gs+total_terms] = coeffs[s:s+total_terms]
-            hat_block = coeffs_hat[s:s+total_terms]
-            with np.errstate(divide='ignore'):
-                log_coeff[gs:gs+total_terms] = (
-                    np.log(np.abs(hat_block)) + log_Dc[s:s+total_terms])
-            sign_coeff[gs:gs+total_terms] = np.sign(hat_block)
-        return coeff, log_coeff, sign_coeff
 
     def _solve_decoupled_iterative(self, elements, groups, n, total_terms,
                                    alpha_l, alpha_t, beta, ca, gamma):
@@ -1150,47 +1119,15 @@ class ATSimulation:
                 delta = float('inf')
             logger.info(f"  Iteration {iteration+1}: max_log_delta={delta:.2e}")
             if iteration > 0 and delta < 0.01:
-                print(f"Decoupled solve converged after {iteration+1} iterations "
-                      f"(max_log_delta={delta:.2e})")
+                self.solve_info["iterations"] = iteration + 1
+                self.solve_info["max_log_delta"] = float(delta)
+                self.solve_info["converged"] = True
                 return coeff, log_coeff, sign_coeff
 
-        print(f"Decoupled solve: {max_iter} iterations (max_log_delta={delta:.2e})")
+        self.solve_info["iterations"] = max_iter
+        self.solve_info["max_log_delta"] = float(delta)
+        self.solve_info["converged"] = False
         return coeff, log_coeff, sign_coeff
-
-    @staticmethod
-    def _find_atomic_units(elements):
-        """
-        Classify elements into "atomic units" that cannot be split during
-        decoupling, plus a list of "shared" elements that must be included
-        in every solve group.
-
-        In vertical orientation:
-          - Each source element and its mirror image form an atomic unit
-            (they must always be solved together because they enforce the
-            water-table condition as a pair).
-
-        In horizontal orientation, each element is its own atomic unit.
-
-        Returns (units, shared) where units is a list of lists of indices
-        and shared is a flat list of indices.
-        """
-        units = []
-        shared = []
-        i = 0
-        while i < len(elements):
-            eid = elements[i].id.lower() if elements[i].id else ""
-            if eid.startswith("zero_"):
-                shared.append(i)
-                i += 1
-            elif (not eid.startswith("image_")
-                  and i + 1 < len(elements)
-                  and (elements[i+1].id or "").lower().startswith("image_")):
-                units.append([i, i+1])
-                i += 2
-            else:
-                units.append([i])
-                i += 1
-        return units, shared
 
     def solve_system(self, alpha_l, alpha_t, beta, gamma, ca, n, M):
         """
@@ -1198,7 +1135,7 @@ class ATSimulation:
         coupling graph.
 
         Strategy:
-          1. Link two elements when |Ke| between their centres exceeds 1e-14
+          1. Link two elements when |Ke| between their centres exceeds 1e-300
              in either direction (_find_coupling_groups).
           2. If allow_decoupling is true and the graph splits into more than
              one group, solve the groups separately (_solve_decoupled_iterative).
@@ -1216,10 +1153,9 @@ class ATSimulation:
         span the coupled system cannot be equilibrated at all.
 
         "Decoupled" groups therefore still interact; they are solved separately
-        because their interaction cannot be held in a float64 matrix. The 1e-14
-        floor is conservative and also separates pairs the coupled solve handles
-        well, such as a deep source and its own mirror image; those take the
-        iterative path with no loss of accuracy.
+        because their interaction cannot be held in a float64 matrix. The
+        1e-300 floor sits just above float64 underflow, so pairs the coupled
+        solve can still represent stay coupled.
 
         Set config "allow_decoupling": false to force the coupled solve. Distant
         groups are then solved inaccurately, and a group spanning beyond the
@@ -1232,17 +1168,18 @@ class ATSimulation:
         elements = self.config.elements
         num_elements = len(elements)
         total_terms = 2 * n - 1
-        cond_threshold = 1e14
         allow_decoupling = getattr(self.config, "allow_decoupling", True)
 
         # Populated as the decision below is made; consumed by print_statistics
         # and available to batch drivers that want to aggregate solver outcomes.
         self.solve_info = {
             "cond": None,
-            "cond_threshold": cond_threshold,
             "decoupling_allowed": allow_decoupling,
             "n_coupling_groups": None,
             "groups": None,
+            "iterations": None,
+            "max_log_delta": None,
+            "converged": None,
             "decision": None,
             "reason": None,
         }
@@ -1258,12 +1195,11 @@ class ATSimulation:
             self.solve_info["decision"] = "decoupled"
             self.solve_info["groups"] = [sorted(g) for g in groups]
             self.solve_info["reason"] = (
-                f"Ke coupling graph (floor 1e-14) splits into {len(groups)} "
+                f"Ke coupling graph (floor 1e-300) splits into {len(groups)} "
                 f"groups; solved separately with log-space cross-group "
                 f"corrections.")
 
-            print(f"Decoupled solve: {len(groups)} coupling groups "
-                  f"with log-space cross-group corrections")
+            print("Decoupled solve")
 
             self.coeff, self.log_coeff, self.sign_coeff = \
                 self._solve_decoupled_iterative(
@@ -1297,100 +1233,7 @@ class ATSimulation:
         self.solve_info["reason"] = (
             f"Single coupling group (or decoupling disabled). "
             f"Condition number {cond:.3e}.")
-        print(f"Coupled solve: OK (cond={cond:.1e})")
-
-    def _split_until_valid(self, indices, elements, units, shared,
-                           n, total_terms, alpha_l, alpha_t,
-                           beta, ca, gamma, cond_threshold):
-        """
-        Recursively split a set of elements until each subgroup is
-        well-conditioned.
-
-        At each level: if the group's matrix is already well-conditioned,
-        return it as a single group. Otherwise, find the largest spatial
-        gap between atomic units (sorted by x, then y), split there, add
-        the shared elements to each side, and recurse on both halves.
-
-        Returns a flat list of groups (each a list of element indices)
-        whose union covers all input indices.
-        """
-        index_set = set(indices)
-        contained_units = [u for u in units if all(i in index_set for i in u)]
-
-        if len(contained_units) <= 1:
-            return [indices]
-
-        A, b, Dr, Dc, b_eq_direct, log_Dc, _Dc_out = self._build_group_system(
-            indices, elements, alpha_l, alpha_t, beta, ca, gamma, n)
-        A_eq, b_eq = self._equilibrate(A, b, Dr, Dc, b_eq_direct)
-        _, cond = self._solve_scaled_lstsq(A_eq, b_eq)
-
-        if cond < cond_threshold:
-            return [indices]
-
-        sorted_units = sorted(contained_units,
-                              key=lambda u: (elements[u[0]].x, elements[u[0]].y))
-
-        max_gap = -1
-        split_pos = 1
-        for k in range(1, len(sorted_units)):
-            prev_src = elements[sorted_units[k-1][0]]
-            curr_src = elements[sorted_units[k][0]]
-            gap = math.sqrt((curr_src.x - prev_src.x)**2 +
-                            (curr_src.y - prev_src.y)**2)
-            if gap > max_gap:
-                max_gap = gap
-                split_pos = k
-
-        left_units = sorted_units[:split_pos]
-        right_units = sorted_units[split_pos:]
-        left = sorted(set([i for u in left_units for i in u] + shared))
-        right = sorted(set([i for u in right_units for i in u] + shared))
-
-        left_groups = self._split_until_valid(
-            left, elements, units, shared, n, total_terms,
-            alpha_l, alpha_t, beta, ca, gamma, cond_threshold)
-        right_groups = self._split_until_valid(
-            right, elements, units, shared, n, total_terms,
-            alpha_l, alpha_t, beta, ca, gamma, cond_threshold)
-        return left_groups + right_groups
-
-    def _validate_group_boundary(self, group_indices, elements, coeff, n,
-                                 alpha_l, alpha_t, beta, ca, gamma,
-                                 max_rel_error=0.05):
-        """
-        Check whether a solved group's coefficients satisfy the boundary
-        conditions on its own elements.
-
-        Samples ~10 points along each element's outline, evaluates the
-        F-field from this group only, and compares against the prescribed
-        target value. Returns True if every element's mean error is below
-        max_rel_error relative to its target magnitude.
-
-        Used as a post-solve sanity check — if False, the group may need
-        further splitting.
-        """
-        total_terms = 2 * n - 1
-        for idx in group_indices:
-            elem = elements[idx]
-            outline = elem.outline
-            step = max(1, len(outline) // 10)
-            errors = []
-            for (x_cp, y_cp) in outline[::step]:
-                F = self._evaluate_group_field(
-                    group_indices, elements, coeff, n,
-                    x_cp, y_cp, alpha_l, alpha_t)
-                f_tgt = self.f_target(x_cp, elem, ca, gamma, beta)
-                if f_tgt is not None:
-                    errors.append(abs(F - f_tgt))
-            if not errors:
-                continue
-            mean_err = np.mean(errors)
-            f_tgt_sample = self.f_target(elem.x, elem, ca, gamma, beta)
-            denom = max(abs(f_tgt_sample), 1e-30) if f_tgt_sample is not None else 1e-30
-            if mean_err / denom > max_rel_error:
-                return False
-        return True
+        print("Coupled solve")
 
     # Boundary condition target
 
@@ -2009,8 +1852,13 @@ class ATSimulation:
                     f.write(f"Coupling groups found: {info.get('n_coupling_groups')}\n")
                 if info.get("groups"):
                     f.write(f"Decoupled groups: {info.get('groups')}\n")
+                if info.get("iterations") is not None:
+                    f.write(f"Iterations: {info.get('iterations')} "
+                            f"(max log-coefficient change "
+                            f"{info.get('max_log_delta'):.2e}, "
+                            f"{'converged' if info.get('converged') else 'hit iteration cap'})\n")
                 f.write("Criterion: decouple when allow_decoupling is true and the "
-                        "Ke coupling graph (|Ke| > 1e-14 between element centres) "
+                        "Ke coupling graph (|Ke| > 1e-300 between element centres) "
                         "splits into more than one group; the condition number is "
                         "not used. Decoupled groups still interact through "
                         "log-space cross-group corrections.\n")

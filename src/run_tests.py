@@ -344,7 +344,7 @@ def _analyse_results(all_results):
       5. Grid time vs plume length — correlation analysis: long plumes
          require multiple domain extensions and dominate conc_array time.
       6. Conditioning vs solve time — whether high condition number
-         predicts slow solves, useful for tuning the cond_threshold.
+         predicts slow solves.
     """
     done = [r for r in all_results if r["status"] == "DONE"]
     if not done:

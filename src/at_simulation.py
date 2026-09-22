@@ -881,9 +881,16 @@ class ATSimulation:
                     etas[cp_idx], psis[cp_idx] = e_j.uv(
                         dx[cp_idx], dy[cp_idx], alpha_l, alpha_t)
 
-                # Self-diagonal line elements: evaluate on eta=0
+                # A line's own control points sit on the slit, at eta = 0.
+                # Take psi from the element's own parametrisation rather than
+                # from uv(): on the slit the acosh branch decides which face a
+                # point lies on from a quantity that is zero in exact
+                # arithmetic, so the face is otherwise set by rounding noise,
+                # which flips the sign of every odd (se*Ko) basis function.
                 if e_j.kind == ATElementType.Line and i_local == j_local:
                     etas[:] = 0.0
+                    if e_j.outline_psi is not None:
+                        psis[:] = e_j.outline_psi
 
                 # Batch Mathieu: all orders × all control points in one call
                 ce_vals = e_j.m.ce(orders_all, psis).real  # (n, ncp_i)
@@ -1187,34 +1194,40 @@ class ATSimulation:
 
     def solve_system(self, alpha_l, alpha_t, beta, gamma, ca, n, M):
         """
-        Top-level solver: try coupled, fall back to decoupled only when safe.
+        Top-level solver: choose the coupled or decoupled solve from the Ke
+        coupling graph.
 
         Strategy:
-          1. Assemble and solve the full coupled system with row+column scaling.
-          2. Check the condition number. If below cond_threshold, done.
-          3. If above threshold: check whether the Ke-based coupling graph
-             yields multiple disconnected groups. If ALL elements are in one
-             coupled group (log|Ke| >> -14 for every pair), the high condition
-             number is due to matrix scale disparity — NOT exp-amplification
-             instability — and the coupled result is still correct. Use it.
-          4. Only if genuinely separable groups exist: split and run the
-             decoupled iterative (Gauss-Seidel) solver.
-          5. If splitting yields only one group despite the high cond, fall
-             back to the coupled result.
+          1. Link two elements when |Ke| between their centres exceeds 1e-14
+             in either direction (_find_coupling_groups).
+          2. If allow_decoupling is true and the graph splits into more than
+             one group, solve the groups separately (_solve_decoupled_iterative).
+             Each group's field at the other groups' control points is computed
+             in log space and subtracted from their right-hand sides, iterating
+             until the log coefficients settle. The condition number is not used.
+          3. Otherwise, solve all elements as one equilibrated system.
 
-        Decoupling therefore requires BOTH conditions to hold: the coupled
-        system must be ill-conditioned (cond >= cond_threshold) AND the
-        Ke-based coupling graph must actually separate into >1 group. A high
-        condition number on its own is not sufficient — it is commonly caused
-        by column-scale disparity rather than exp(beta*x) amplification, and
-        decoupling in that case would give a wrong answer.
+        Decoupling keeps distant sources correct; it is not a speed-up. Along x
+        the cross-term Ke decays roughly like exp(-beta*dx), so beyond about
+        709/beta (2836 m at alpha_l = 2) it underflows to exactly zero in the
+        coupled matrix, while the upstream plume still reaches the downstream
+        source with O(1) strength. A coupled solve then misses an interaction
+        that the log-space field evaluation includes, and past about twice that
+        span the coupled system cannot be equilibrated at all.
 
-        Set config "allow_decoupling": false to disable the fallback entirely
-        and always keep the coupled result.
+        "Decoupled" groups therefore still interact; they are solved separately
+        because their interaction cannot be held in a float64 matrix. The 1e-14
+        floor is conservative and also separates pairs the coupled solve handles
+        well, such as a deep source and its own mirror image; those take the
+        iterative path with no loss of accuracy.
 
-        The resulting coefficient vector is stored in self.coeff, and a record
-        of how the decision was made in self.solve_info (reported in the stats
-        file by print_statistics).
+        Set config "allow_decoupling": false to force the coupled solve. Distant
+        groups are then solved inaccurately, and a group spanning beyond the
+        equilibration limit raises ValueError.
+
+        Coefficients go to self.coeff, self.log_coeff and self.sign_coeff, and a
+        record of the decision to self.solve_info (written to the stats file by
+        print_statistics).
         """
         elements = self.config.elements
         num_elements = len(elements)
@@ -1236,31 +1249,21 @@ class ATSimulation:
 
         all_indices = list(range(num_elements))
 
-        # Check coupling groups FIRST.  When separable groups exist, the
-        # coupled A matrix has zero cross-blocks (Ke underflows at that
-        # distance), so lstsq solves each block independently — but the
-        # log-space field evaluation can still recover cross-group
-        # contributions that the solve never saw.  The iterative decoupled
-        # solver fixes this by subtracting log-space cross-corrections.
         coupling_groups = self._find_coupling_groups(elements, alpha_l, alpha_t)
         self.solve_info["n_coupling_groups"] = len(coupling_groups)
 
         if allow_decoupling and len(coupling_groups) > 1:
-            # Use coupling groups directly — they represent the physical
-            # separation where Ke underflows to 0 in double precision.
-            # The iterative solver's log-space cross-corrections handle
-            # the interactions that the A matrix cannot represent.
             groups = coupling_groups
 
             self.solve_info["decision"] = "decoupled"
             self.solve_info["groups"] = [sorted(g) for g in groups]
             self.solve_info["reason"] = (
-                f"Coupling graph separates into "
-                f"{len(groups)} independent groups. Solved with "
-                f"log-space cross-corrections.")
+                f"Ke coupling graph (floor 1e-14) splits into {len(groups)} "
+                f"groups; solved separately with log-space cross-group "
+                f"corrections.")
 
-            print(f"Decoupled solve: {len(groups)} separable groups "
-                  f"with log-space corrections")
+            print(f"Decoupled solve: {len(groups)} coupling groups "
+                  f"with log-space cross-group corrections")
 
             self.coeff, self.log_coeff, self.sign_coeff = \
                 self._solve_decoupled_iterative(
@@ -1997,18 +2000,20 @@ class ATSimulation:
                 f.write("\n=== SOLVER ===\n")
                 cond = info.get("cond")
                 f.write(f"Decision: {info.get('decision')}\n")
-                f.write(f"Condition number: "
-                        f"{cond:.6e}\n" if cond is not None else "Condition number: n/a\n")
-                f.write(f"Condition threshold: {info.get('cond_threshold'):.0e}\n")
+                if cond is not None:
+                    f.write(f"Condition number: {cond:.6e}\n")
+                else:
+                    f.write("Condition number: n/a (not computed for the decoupled solve)\n")
                 f.write(f"Decoupling allowed: {info.get('decoupling_allowed')}\n")
                 if info.get("n_coupling_groups") is not None:
                     f.write(f"Coupling groups found: {info.get('n_coupling_groups')}\n")
                 if info.get("groups"):
                     f.write(f"Decoupled groups: {info.get('groups')}\n")
-                f.write("Criterion: decoupling requires BOTH cond >= threshold "
-                        "AND a coupling graph that separates into more than one "
-                        "group. A high condition number alone is usually "
-                        "column-scale disparity, not exp(beta*x) instability.\n")
+                f.write("Criterion: decouple when allow_decoupling is true and the "
+                        "Ke coupling graph (|Ke| > 1e-14 between element centres) "
+                        "splits into more than one group; the condition number is "
+                        "not used. Decoupled groups still interact through "
+                        "log-space cross-group corrections.\n")
                 f.write(f"Reason: {info.get('reason')}\n")
 
             if self.probe_results:

@@ -48,6 +48,9 @@ class ATElement:
         self.q: float = 0.0
         self.m: Mathieu = Mathieu(0.0)
         self.outline: list = []
+        # For a line only: the psi of each control point, i.e. which face of
+        # the slit it belongs to. See set_outline.
+        self.outline_psi = None
         self.label: str = ""
         self.id: str = ""
         self.index: int | None = None   # designer metadata; solver ignores it
@@ -130,6 +133,7 @@ class ATElement:
         self.m = Mathieu(self.q, M=M)
 
     def set_outline(self, num_cp: int):
+        self.outline_psi = None     # lines set it below; nothing else needs it
         if self.kind == ATElementType.Circle:
             phi = np.linspace(0, 2 * math.pi, num_cp, endpoint=False)
             self.outline = [
@@ -151,13 +155,30 @@ class ATElement:
             ]
 
         elif self.kind == ATElementType.Line:
-            half_len = self.r
-            t_vals = np.linspace(-half_len, half_len, num_cp)
+            # A line is a slit, so it has two faces. In elliptic coordinates a
+            # point on it is (eta=0, psi), with psi in (0, pi) on one face and
+            # in (pi, 2*pi) on the other; the two faces share the same physical
+            # (x, y). Sampling psi uniformly therefore covers both faces and
+            # records which one each control point belongs to.
+            #
+            # That record is the point of this parametrisation. At eta = 0 the
+            # acosh branch in uv() has to pick the face from a quantity that is
+            # zero in exact arithmetic, so it ends up decided by rounding noise
+            # (~1e-17). Because ce is even in psi and se is odd, a face picked
+            # at random flips the sign of every odd basis function, which is
+            # what made line elements badly conditioned.
+            #
+            # In the element frame the slit is X = d*cos(psi), so the offset
+            # along the line is t = r*cos(psi). The half-step offset keeps the
+            # control points off the two tips, where the mapping is singular.
+            psis = (np.arange(num_cp) + 0.5) * 2.0 * math.pi / num_cp
+            c_th, s_th = math.cos(self.theta), math.sin(self.theta)
             self.outline = [
-                (self.x + t * math.cos(self.theta),
-                 self.y + t * math.sin(self.theta))
-                for t in t_vals
+                (self.x + self.r * math.cos(p) * c_th,
+                 self.y + self.r * math.cos(p) * s_th)
+                for p in psis
             ]
+            self.outline_psi = psis
         else:
             raise ValueError(f"Unknown element kind: {self.kind}")
 

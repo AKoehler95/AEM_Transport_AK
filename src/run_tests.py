@@ -146,38 +146,15 @@ def _run_one_body(config_path, result, stdout_buf, use_predictor=False, predicto
     if hasattr(sim, 'timer') and hasattr(sim.timer, 'phases'):
         result["phase_timings"] = {k: round(v, 3) for k, v in sim.timer.phases.items()}
 
-    # Parse solver diagnostics from captured stdout
-    for ln in (stdout_text or "").splitlines():
-        s = ln.strip()
-        if s.startswith("Coupled solve: OK") and "cond=" in s:
-            result["solve_method"] = "coupled"
-            try:
-                result["condition_number"] = float(
-                    s.split("cond=")[1].strip().rstrip(")"))
-            except Exception:
-                pass
-        elif "ill-conditioned" in s and "all elements coupled" in s and "cond=" in s:
-            # High cond but coupling check forced the coupled result — still coupled
-            result["solve_method"] = "coupled*"
-            try:
-                result["condition_number"] = float(
-                    s.split("cond=")[1].split(")")[0].strip())
-            except Exception:
-                pass
-        elif "ill-conditioned" in s and "separable groups" in s and "cond=" in s:
-            result["solve_method"] = "decoupled"
-            try:
-                result["condition_number"] = float(
-                    s.split("cond=")[1].split(")")[0].strip())
-            except Exception:
-                pass
-        elif "Could not split further" in s:
-            result["solve_method"] = "coupled*"
-        elif s.startswith("Split into"):
-            try:
-                result["num_groups"] = int(s.split()[2])
-            except Exception:
-                pass
+    # Solver diagnostics come from the simulation itself; the terminal output
+    # only says "Coupled solve" / "Decoupled solve".
+    info = getattr(sim, "solve_info", None) or {}
+    if info.get("decision"):
+        result["solve_method"] = info["decision"]
+    if info.get("cond") is not None:
+        result["condition_number"] = float(info["cond"])
+    groups = info.get("groups")
+    result["num_groups"] = len(groups) if groups else 1
 
     # Parse validation result
     for ln in (stdout_text or "").splitlines():
@@ -203,14 +180,27 @@ def _run_one_body(config_path, result, stdout_buf, use_predictor=False, predicto
         1 for k in (result.get("phase_timings") or {}) if k.startswith("conc_array_ext")
     )
     domain_width = dom_xmax_final - sim.config.dom_xmin
-    censored = True
+    censored_x = True
     if sim.L_max is not None and domain_width > 0:
         max_x_distance = sim.L_max - sim.config.dom_xmin
-        censored = max_x_distance >= 0.95 * domain_width
+        censored_x = max_x_distance >= 0.95 * domain_width
+
+    # Vertical capping clips the part of the envelope that reaches furthest in
+    # x, so L_max is a lower bound there too (check_vertical_adequacy). Without
+    # this, a plume pressed against dom_ymin was recorded as a clean run.
+    domain_height = sim.config.dom_ymax - sim.config.dom_ymin
+    z_min_reached = getattr(sim, "z_min_reached", None)
+    censored_z = False
+    if z_min_reached is not None and domain_height > 0:
+        censored_z = (z_min_reached - sim.config.dom_ymin) <= 0.05 * domain_height
 
     result["dom_xmax_final"] = dom_xmax_final
+    result["dom_ymin_final"] = sim.config.dom_ymin
     result["n_extensions"]   = n_extensions
-    result["censored"]       = censored
+    result["z_min_reached"]  = z_min_reached
+    result["censored_x"]     = censored_x
+    result["censored_z"]     = censored_z
+    result["censored"]       = censored_x or censored_z
 
 
 def _append_dataset_row(path, row):
@@ -263,6 +253,10 @@ def run_one(config_path, use_predictor=False, predictor=None, learn=False,
         dom_xmax_final=None,
         n_extensions=None,
         censored=None,
+        censored_x=None,
+        censored_z=None,
+        z_min_reached=None,
+        dom_ymin_final=None,
         predictor_trained=False,
         L_pred_q=None,
     )
@@ -344,7 +338,7 @@ def _analyse_results(all_results):
       5. Grid time vs plume length — correlation analysis: long plumes
          require multiple domain extensions and dominate conc_array time.
       6. Conditioning vs solve time — whether high condition number
-         predicts slow solves, useful for tuning the cond_threshold.
+         predicts slow solves.
     """
     done = [r for r in all_results if r["status"] == "DONE"]
     if not done:
@@ -865,8 +859,12 @@ def main():
     if done:
         n_ext = [r["n_extensions"] for r in done if r["n_extensions"] is not None]
         n_capped = sum(1 for r in done if r.get("censored"))
+        n_cap_x = sum(1 for r in done if r.get("censored_x"))
+        n_cap_z = sum(1 for r in done if r.get("censored_z"))
         if n_ext:
-            print(f"  mean extensions: {sum(n_ext)/len(n_ext):.2f}   capped: {n_capped}/{len(done)}")
+            print(f"  mean extensions: {sum(n_ext)/len(n_ext):.2f}")
+        print(f"  capped L_max: {n_capped}/{len(done)} "
+              f"(x-boundary: {n_cap_x}, z-boundary: {n_cap_z})")
     if predictor is not None:
         print(f"  predictor rows after this batch: {len(predictor.y)}")
 

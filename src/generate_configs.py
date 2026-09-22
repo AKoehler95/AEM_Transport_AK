@@ -32,8 +32,8 @@ import numpy as np
 #USER CONFIG
 
 N_CONFIGS   = 200
-OUTPUT_DIR  = "mc_batch_01"
-RANDOM_SEED = 5799              # int for reproducibility, or None
+OUTPUT_DIR  = "mc_batch_008"
+RANDOM_SEED = 31051994              # int for reproducibility, or None
 ORIENTATION = "vertical"        # "horizontal" | "vertical"
 
 # How random samples are spread over the factor ranges:
@@ -51,7 +51,7 @@ RADIUS_FACTORS = {
     "COARSE": [0.12, 0.20, 0.30, 0.42],
     "BROAD":  [0.08, 0.14, 0.22, 0.32, 0.42],
 }
-CD_POOL = np.linspace(10, 1000, 50, dtype=int).tolist() #[3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 35.0, 50.0]   # donor conc. [mg/L] 
+CD_POOL = np.linspace(10, 500, 50, dtype=int).tolist() #[3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 35.0, 50.0]   # donor conc. [mg/L] 
 
 GAMMA_BOUNDS = (3.5, 3.5) #(2, 20.0)      # valid range for the derived gamma
 
@@ -67,12 +67,12 @@ class D:
 # is sampled. Constants and derived factors are excluded from the design matrix.
 FACTORS = {
     # Geometry
-    "ws":          5.0,                       # source width [m]
-    "y_span":      (2.0, 10.0),               # source height [m]
-    "packing":     (0.10, 0.50),              # fraction of WS*y_span covered by circles
+    "ws":          10.0,                       # source width [m]
+    "y_span":      (1.0, 3.0),               # source height [m]
+    "packing":     (0.10, 0.80),              # fraction of WS*y_span covered by circles
     "n_clusters":  {"choice": [2, 3, 4, 5], "weights": [1, 2, 3, 2]},
-    "archetype":   {"choice": list("ACDEFHIJ")},    # spatial pattern; see ARCHETYPES
-    "radius_pool": {"choice": ["FINE", "MED", "COARSE", "BROAD"]},
+    "archetype":   {"choice": list("CEFH")},    # spatial pattern; see ARCHETYPES "ACDEFHIJ"
+    "radius_pool": {"choice": ["FINE", "MED", "COARSE"]}, #, "BROAD"
 
     # Transport
     "alpha_l":     (0.5, 2.0),                # longitudinal dispersivity
@@ -87,9 +87,9 @@ FACTORS = {
     "gamma":       3.5, #D(lambda f: (f["T"] - 1.0) * f["ca"] / f["cd"]),
 
     # Numerics
-    "num_cp":      40,
-    "num_terms":   7,                         # keep at 5; dense sources are unstable higher
-    "dom_inc":     1.0,
+    "num_cp":      50,
+    "num_terms":   15,                         # keep at 5; dense sources are unstable higher
+    "dom_inc":     5.0,
 }
 
 # A config is rejected and resampled if any constraint returns False.

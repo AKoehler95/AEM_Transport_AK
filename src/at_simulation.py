@@ -354,7 +354,7 @@ def _compute_point(args):
         total, _ = _logspace_total(x, y, elements, coeff, num_terms,
                                    alpha_l, alpha_t, beta,
                                    log_coeff=log_coeff, sign_coeff=sign_coeff)
-
+    # conc = (total - ca) / gamma
     if total > ca:
         conc = (total - ca) / gamma
     else:
@@ -1772,11 +1772,11 @@ class ATSimulation:
 
             if elem.kind == ATElementType.Circle:
                 phi = np.array([0.0, pi/2, pi, 3*pi/2])
-                x_test = elem.x + (elem.r + 1e-2) * np.cos(phi)
-                y_test = elem.y + (elem.r + 1e-2) * np.sin(phi)
+                x_test = elem.x + (elem.r + 1e-9) * np.cos(phi)
+                y_test = elem.y + (elem.r + 1e-9) * np.sin(phi)
 
             elif elem.kind == ATElementType.Ellipse:
-                phi = np.array([0.0, pi/2, pi, 3*pi/2])
+                phi = np.linspace(0, 2*np.pi, 360) #np.array([0.0, pi/2, pi, 3*pi/2])
                 a = float(elem.r)
                 b = float(elem.b if elem.b is not None else elem.r)
                 ct, st = math.cos(elem.theta), math.sin(elem.theta)
@@ -1785,7 +1785,7 @@ class ATSimulation:
 
             elif elem.kind == ATElementType.Line:
                 half_len = elem.r
-                fracs = np.array([-0.75, -0.25, 0.25, 0.75])
+                fracs = np.linspace(-1, 1, 360) #np.array([-0.75, -0.25, 0.25, 0.75])
                 s = fracs * half_len
                 phi = (fracs + 1.0) * pi  # map to [0, 2π] for plotting
                 x_test = elem.x + s * cos(elem.theta)
@@ -2155,6 +2155,7 @@ class ATSimulation:
         Saves to sim_runs/<run_index>_<label>/plot.pdf.
         """
         max_val = float(np.max(self.result))
+        print(max_val)
         min_val = float(np.min(self.result))
         abs_min = abs(min_val)
         xmin, xmax = self.config.dom_xmin, self.config.dom_xmax

@@ -50,7 +50,7 @@ matplotlib.use('Agg')
 #                    instead of each config's built-in guess.
 #   LEARN          : True to append each clean run to the xmax dataset and
 #                    refit the model afterwards.
-CONFIG_DIR    = "mc_batch_008"
+CONFIG_DIR    = "mc_batch_011"
 USE_PREDICTOR = True
 LEARN         = True
 # ─────────────────────────────────────────────────────────────────────────────
@@ -61,7 +61,7 @@ SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 # a bare name like "batch_configs" works regardless of the IDE's working dir.
 if not os.path.isabs(CONFIG_DIR):
     CONFIG_DIR = os.path.join(SCRIPT_DIR, CONFIG_DIR)   # overridden in main() from argv
-RESULTS_DIR = os.path.join(SCRIPT_DIR, "batch_results/Batch_008")
+RESULTS_DIR = os.path.join(SCRIPT_DIR, "batch_results/Batch_011")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Dataset path for the learned dom_xmax predictor (xmax_features.py /
@@ -478,7 +478,7 @@ def _analyse_results(all_results):
                      f"mean={_mean(lmaxes):.1f} m")
 
         # Histogram buckets
-        buckets = [(0, 100), (100, 300), (300, 600), (600, 1000), (1000, 9999)]
+        buckets = [(0, 100), (100, 300), (300, 600), (600, 1000), (1000, 2000), (2000, 5000), (5000, 9999)]
         lines.append("  Distribution:")
         for lo, hi in buckets:
             count = sum(1 for v in lmaxes if lo <= v < hi)
@@ -500,8 +500,8 @@ def _analyse_results(all_results):
             "G": "diagonal",     "H": "two-groups",   "I": "outlier",
             "J": "dense-ctr",    "?": "unknown",
         }
-        arch_buckets = arch_buckets = [(0, 100), (100, 300), (300, 600), (600, 1000), (1000, 9999)]
-        arch_bucket_labels = ["0–100", "100–300", "300–600", "600–1000", "1000+"]
+        arch_buckets = arch_buckets = [(0, 100), (100, 300), (300, 600), (600, 1000), (1000, 2000), (2000, 5000), (5000, 9999)]
+        arch_bucket_labels = ["0–100", "100–300", "300–600", "600–1000", "1000-2000", "2000-5000", "5000-9999"]
 
         def _std(vals):
             if len(vals) < 2:
@@ -625,7 +625,7 @@ def _analyse_results(all_results):
     lines.append("  Total grid time grows rapidly with L_max because long plumes")
     lines.append("  trigger domain extensions (each adding a full grid pass).")
 
-    buckets_lmax = [(0, 100), (100, 300), (300, 600), (600, 1000), (1000, 9999)]
+    buckets_lmax = [(0, 100), (100, 300), (300, 600), (600, 1000), (1000, 2000), (2000, 5000), (5000, 9999)]
     for lo, hi in buckets_lmax:
         group = [r for r in done
                  if r.get("L_max") is not None and lo <= r["L_max"] < hi
